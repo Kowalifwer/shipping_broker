@@ -12,10 +12,11 @@ app = FastAPI()
 # Get credentials from config.cfg
 config = configparser.ConfigParser()
 config.read('config.cfg')
-client_id = config['DEFAULT']['client_id']
-client_secret = config['DEFAULT']['client_secret']
-tenant_id = config['DEFAULT']['tenant_id']
-redirect_uri = config['DEFAULT']['redirect_uri']
+config = config['azure']
+client_id = config['client_id']
+client_secret = config['client_secret']
+tenant_id = config['tenant_id']
+redirect_uri = config['redirect_uri']
 
 authority = "https://login.microsoftonline.com/common"  # common, to allow any microsoft account to authenticate
 SCOPES = ["User.Read", "Mail.Read", "Mail.Send"] # You can list the scopes you want to access
@@ -35,7 +36,7 @@ access_token = None
 
 # Route for login and redirection to the Microsoft login page
 @app.get("/login")
-async def login(request: Request):
+async def login():
     try:
         auth_url = client.get_authorization_request_url(
             scopes=SCOPES,
@@ -48,8 +49,8 @@ async def login(request: Request):
         raise HTTPException(status_code=401, detail=f"Authorization error - {e}")
 
 # Route for handling the redirect from Microsoft login, and verifying the access token, so it can be used to make requests to the Microsoft Graph API
-@app.get("/verified")
-async def verified(request: Request, code: str = Query(...)):
+@app.get("/auth")
+async def verified(code: str = Query(...)):
     global access_token
 
     try:
@@ -95,13 +96,14 @@ async def read_emails():
     graph_api_url = "https://graph.microsoft.com/v1.0/me/messages"
     response = requests.get(graph_api_url, headers=headers)
 
-    print(response.json())
-
     if response.status_code == 200:
         emails = response.json()
         return emails
     else:
         raise HTTPException(status_code=500, detail="Error reading emails")
+
+
+
 
 if __name__ == "__main__":
     import uvicorn
