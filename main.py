@@ -3,6 +3,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from mail import EmailClient
 import asyncio
 import configparser
+import imaplib
 
 app = FastAPI()
 
@@ -12,9 +13,6 @@ app = FastAPI()
 @app.get("/")
 async def read_root():
     return {"message": "Welcome to your FastAPI app!"}
-
-
-import imaplib
 
 # Get credentials from config.cfg
 config = configparser.ConfigParser()
