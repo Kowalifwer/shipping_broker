@@ -42,20 +42,7 @@ except Exception as e:
     print(f"Error: Could not connect to the server - {e}")
     exit()
 
-# Connect to MongoDB
-
-mongodb = AsyncIOMotorClient("mongodb://localhost:27017/")
-db = mongodb["broker"]
-db_emails = db["emails"]
-
-# Route for the root endpoint
-@app.get("/")
-async def read_root():
-    return {"message": "Welcome to your FastAPI app!"}
-
-# The rest of your email processing code goes here
-
-client = EmailClient(
+mail_handler = EmailClient(
     imap_server=imap_server,
     imap_port=imap_port,
     email_address=email_address,
@@ -63,7 +50,19 @@ client = EmailClient(
     mailbox_name="INBOX",
 )
 
-client.connect()
+mail_handler.connect()
+
+# Connect to MongoDB
+db_hanlder = AsyncIOMotorClient("mongodb://localhost:27017/")
+db = db_hanlder["broker"]
+db_emails = db["emails"]
+
+# Route for the root endpoint
+@app.get("/")
+async def read_root():
+    return {"message": "Welcome to your FastAPI app!"}
+
+
 
 endless_task_running = False
 
@@ -95,7 +94,7 @@ async def stop_task():
 
 @app.get("/read_emails")
 async def read_emails():
-    emails = client.read_emails(
+    emails = mail_handler.read_emails(
         #all emails search criteria
         search_criteria="ALL",
         num_emails=3,
