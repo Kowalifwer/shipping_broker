@@ -1,109 +1,99 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
-import requests
-import msal
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, BackgroundTasks
+from fastapi.responses import RedirectResponse, HTMLResponse
+from mail import EmailClient
+import asyncio
 import configparser
 
 app = FastAPI()
 
 #uvicorn main:app --port 8000 --reload
 
-# OAuth2 configuration
-# Get credentials from config.cfg
-config = configparser.ConfigParser()
-config.read('config.cfg')
-config = config['azure']
-client_id = config['client_id']
-client_secret = config['client_secret']
-tenant_id = config['tenant_id']
-redirect_uri = config['redirect_uri']
-
-authority = "https://login.microsoftonline.com/common"  # common, to allow any microsoft account to authenticate
-SCOPES = ["User.Read", "Mail.Read", "Mail.Send"] # You can list the scopes you want to access
-
-# Create a MSAL PublicClientApplication
-client = msal.PublicClientApplication(
-    client_id,
-    authority=authority,
-)
-
 # Route for the root endpoint
 @app.get("/")
 async def read_root():
     return {"message": "Welcome to your FastAPI app!"}
 
-access_token = None
 
-# Route for login and redirection to the Microsoft login page
-@app.get("/login")
-async def login():
-    try:
-        auth_url = client.get_authorization_request_url(
-            scopes=SCOPES,
-            redirect_uri=redirect_uri
-        )
+import imaplib
 
-        # redirect to Microsoft login page
-        return RedirectResponse(auth_url)
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Authorization error - {e}")
+# Get credentials from config.cfg
+config = configparser.ConfigParser()
+config.read('config.cfg')
+config = config['imap']
 
-# Route for handling the redirect from Microsoft login, and verifying the access token, so it can be used to make requests to the Microsoft Graph API
-@app.get("/auth")
-async def verified(code: str = Query(...)):
-    global access_token
+# Set your Outlook email and password (or App Password if 2FA is enabled)
+email_address = config['email']
+imap_password = config['pw']
 
-    try:
-        # Build the request
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded"
-        }
-        data = {
-            "grant_type": "authorization_code",   
-            "client_id": client_id,
-            "scope": SCOPES,
-            "code": code,
-            "redirect_uri": redirect_uri,
-            "client_secret": client_secret
-        }
+# Outlook IMAP settings
+imap_server = "outlook.office365.com"  # Use "outlook.office.com" for Outlook.com accounts
+imap_port = 993  # IMAPS port (secure)
 
-        # Send the request
-        response = requests.post(
-            f"https://login.microsoftonline.com/common/oauth2/v2.0/token",
-            headers=headers,
-            data=data
-        )
+# Connect to the Outlook IMAP server
+try:
+    imap_connection = imaplib.IMAP4_SSL(imap_server, imap_port)
+    imap_connection.login(email_address, imap_password)
+except Exception as e:
+    print(f"Error: Could not connect to the server - {e}")
+    exit()
 
-        if response.status_code == 200:
-            access_token = response.json()["access_token"]
-            return {"message": "You have successfully logged in"}
-        else:
-            raise HTTPException(status_code=401, detail="Authorization error")
+# The rest of your email processing code goes here
 
-    except Exception as e:
-        print(e)
-        raise HTTPException(status_code=401, detail="Authorization error")
+client = EmailClient(
+    imap_server=imap_server,
+    imap_port=imap_port,
+    email_address=email_address,
+    password=imap_password,
+    mailbox_name="INBOX",
+)
 
-# Route to read emails
+client.connect()
+
+endless_task_running = False
+
+async def endless_task():
+    global endless_task_running
+    while endless_task_running:
+        print("Hello from the endless task")
+        await asyncio.sleep(3)
+
+def start_endless_task(background_tasks: BackgroundTasks):
+    global endless_task_running
+    if not endless_task_running:
+        endless_task_running = True
+        background_tasks.add_task(endless_task)
+
+def stop_endless_task():
+    global endless_task_running
+    endless_task_running = False
+
+@app.get("/start")
+async def start_task(background_tasks: BackgroundTasks):
+    start_endless_task(background_tasks)
+    return {"message": "Endless task started in the background."}
+
+@app.get("/stop")
+async def stop_task():
+    stop_endless_task()
+    return {"message": "Endless task stopped."}
+
 @app.get("/read_emails")
 async def read_emails():
-    if access_token is None:
-        return RedirectResponse(url="/login")
+    emails = client.read_emails(
+        #all emails search criteria
+        search_criteria="ALL",
+        num_emails=3,
+        search_keyword="MAP TA PHUT"
+    )
+    for email_message in emails:
+        # Process or display email details as needed
+        print("Subject:", email_message["Subject"])
+        print("-" * 40)
+        print(email_message.body)
+        # print(decode_email_body(email_message))
 
-    headers = {"Authorization": "Bearer " + access_token}
-
-    # Get emails from Microsoft Graph API
-    graph_api_url = "https://graph.microsoft.com/v1.0/me/messages"
-    response = requests.get(graph_api_url, headers=headers)
-
-    if response.status_code == 200:
-        emails = response.json()
-        return emails
-    else:
-        raise HTTPException(status_code=500, detail="Error reading emails")
-
-
-
+    #return html of last email
+    return HTMLResponse(email_message.body)
 
 if __name__ == "__main__":
     import uvicorn
