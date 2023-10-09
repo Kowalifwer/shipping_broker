@@ -4,15 +4,22 @@ from mail import EmailClient
 import asyncio
 import configparser
 import imaplib
+from typing import Any, List
+from datetime import datetime
+
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, EmailStr, Field
+
+class Email(BaseModel):
+    id: str = Field(..., description="Unique identifier for the email")
+    subject: str = Field(..., description="Subject of the email")
+    sender: EmailStr = Field(..., description="Email address of the sender")
+    recipients: List[EmailStr] = Field(..., description="List of email addresses of the recipients")
+    timestamp: datetime = Field(..., description="Timestamp of when the email was sent")
 
 app = FastAPI()
 
 #uvicorn main:app --port 8000 --reload
-
-# Route for the root endpoint
-@app.get("/")
-async def read_root():
-    return {"message": "Welcome to your FastAPI app!"}
 
 # Get credentials from config.cfg
 config = configparser.ConfigParser()
@@ -34,6 +41,17 @@ try:
 except Exception as e:
     print(f"Error: Could not connect to the server - {e}")
     exit()
+
+# Connect to MongoDB
+
+mongodb = AsyncIOMotorClient("mongodb://localhost:27017/")
+db = mongodb["broker"]
+db_emails = db["emails"]
+
+# Route for the root endpoint
+@app.get("/")
+async def read_root():
+    return {"message": "Welcome to your FastAPI app!"}
 
 # The rest of your email processing code goes here
 
