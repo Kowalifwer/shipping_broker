@@ -3,6 +3,7 @@ import email
 from typing import List, Optional, Literal
 from email.message import EmailMessage
 from email.policy import SMTPUTF8, default
+from db import Email
 
 ## Additional methods for EmailMessage class
 @property
@@ -18,7 +19,18 @@ def body(self):
     else:
         return ""
 
+def get_db_object(self) -> Email:
+    return Email(
+        id=self["Message-ID"],
+        subject=self["Subject"],
+        sender=self["From"],
+        recipients=self["To"],
+        timestamp=self["Date"],
+        body=self.body
+    )
+
 EmailMessage.body = body
+EmailMessage.get_db_object = get_db_object
 
 ## End of additional methods for EmailMessage class
 

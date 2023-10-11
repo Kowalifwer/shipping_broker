@@ -8,18 +8,10 @@ from typing import Any, List
 from datetime import datetime
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, EmailStr, Field
-
-class Email(BaseModel):
-    id: str = Field(..., description="Unique identifier for the email")
-    subject: str = Field(..., description="Subject of the email")
-    sender: EmailStr = Field(..., description="Email address of the sender")
-    recipients: List[EmailStr] = Field(..., description="List of email addresses of the recipients")
-    timestamp: datetime = Field(..., description="Timestamp of when the email was sent")
 
 app = FastAPI()
 
-#uvicorn main:app --port 8000 --reload
+#uvicorn main:app --reload
 
 # Get credentials from config.cfg
 config = configparser.ConfigParser()
@@ -55,14 +47,11 @@ mail_handler.connect()
 # Connect to MongoDB
 db_hanlder = AsyncIOMotorClient("mongodb://localhost:27017/")
 db = db_hanlder["broker"]
-db_emails = db["emails"]
 
 # Route for the root endpoint
 @app.get("/")
 async def read_root():
     return {"message": "Welcome to your FastAPI app!"}
-
-
 
 endless_task_running = False
 
@@ -100,12 +89,14 @@ async def read_emails():
         num_emails=3,
         search_keyword="MAP TA PHUT"
     )
+    db_entries = []
+
     for email_message in emails:
         # Process or display email details as needed
-        print("Subject:", email_message["Subject"])
-        print("-" * 40)
-        print(email_message.body)
-        # print(decode_email_body(email_message))
+        db_entries.append(email_message.get_db_object().dict())
+    
+    # Insert emails into MongoDB
+    await db["emails"].insert_many(db_entries)
 
     #return html of last email
     return HTMLResponse(email_message.body)
