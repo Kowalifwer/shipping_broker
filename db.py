@@ -9,3 +9,6 @@ class Email(BaseModel):
     recipients: str = Field(..., description="List of email addresses of the recipients")
     timestamp: str = Field(..., description="Timestamp of when the email was sent")
     body: str = Field(..., description="Content of the email")
+
+class Ship(BaseModel):
+    pass
