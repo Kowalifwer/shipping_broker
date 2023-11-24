@@ -3,7 +3,7 @@ import email
 from typing import List, Optional, Literal
 from email.message import EmailMessage
 from email.policy import SMTPUTF8, default
-from db import Email
+from db import MongoEmail
 
 ## Additional methods for EmailMessage class
 @property
@@ -19,8 +19,8 @@ def body(self):
     else:
         return ""
 
-def get_db_object(self) -> Email:
-    return Email(
+def get_db_object(self) -> MongoEmail:
+    return MongoEmail(
         id=self["Message-ID"],
         subject=self["Subject"],
         sender=self["From"],
@@ -109,7 +109,7 @@ class EmailClient:
             num_emails_to_fetch = min(num_emails, len(email_id_list))
             email_messages: List[EmailMessage] = []
             
-            for i in range(num_emails_to_fetch):
+            for i in range(-1, -1*num_emails_to_fetch-1, -1): # Fetch emails in reverse order
                 status, email_data = self.imap_connection.fetch(email_id_list[i], "(RFC822)")
                 raw_email = email_data[0][1]
                 email_message = email.message_from_bytes(raw_email, _class=EmailMessage, policy=SMTPUTF8)
