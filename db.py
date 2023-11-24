@@ -13,11 +13,10 @@ class MongoEmail(BaseModel):
 class MongoShip(BaseModel):
     name: str = Field(..., description="Name of the ship")
     capacity: str = Field(..., description="Capacity of the ship")
-    commission: float = Field(..., description="Commission percentage")
     email: MongoEmail = Field(..., description="Email object")
 
 class MongoCargo(BaseModel):
     name: str = Field(..., description="Name of the cargo")
     quantity: str = Field(..., description="Quantity of the cargo")
-    commission: float = Field(..., description="Commission percentage")
+    commission: str = Field(..., description="Commission percentage (e.g., 2.5%)")
     email: MongoEmail = Field(..., description="Email object")
