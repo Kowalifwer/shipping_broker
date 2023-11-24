@@ -4,6 +4,7 @@ from typing import List, Optional, Literal
 from email.message import EmailMessage
 from email.policy import SMTPUTF8, default
 from db import MongoEmail
+from datetime import datetime
 
 ## Additional methods for EmailMessage class
 @property
@@ -25,7 +26,8 @@ def get_db_object(self) -> MongoEmail:
         subject=self["Subject"],
         sender=self["From"],
         recipients=self["To"],
-        timestamp=self["Date"],
+        date_received=self["Date"],
+        timestamp_processed=datetime.now(),
         body=self.body
     )
 

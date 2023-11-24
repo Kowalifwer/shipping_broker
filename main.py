@@ -146,7 +146,8 @@ Example output:
                 try:
                     ship = MongoShip(
                         **entry,
-                        email = email
+                        email = email,
+                        timestamp_created = datetime.now()
                     )
                     ships.append(ship.dict())
                 except ValidationError as e:
@@ -157,7 +158,8 @@ Example output:
                 try:
                     cargo = MongoCargo(
                         **entry,
-                        email = email
+                        email = email,
+                        timestamp_created = datetime.now()
                     )
                     cargos.append(cargo.dict())
                 except ValidationError as e:
