@@ -76,38 +76,37 @@ from email.message import EmailMessage
 
 @app.get("/gpt")
 async def gpt_prompt():
-    example = """upto 6-7,000 mt try more rice in big bags abt 1x 1x 1.6-1.7m, abt 1.2 mt
-Georgetown Gy / Guaranao where free d/a
-Dec 8th onw
-2000 mt wwd shinc / 2000 mt wwd shinc
-bo fiost
-2.5 ttl here
+    example = """pls offer yr firm / rated cgo for mv A z a r a open Nemrut 01-02 dec
+
+we hv interest for cgo ex odessa area
+
+mvAZARA
+IMO  9132492 Blt 1997
+Palau Flag Shipping Register of Ukraine
+DWT 13898 / Drft 8,214 mtr
+BC,SID,grab disch,steel floored,
+Grt/Nrt 10220/5123
+LOA/Bm 142,14/22,2
+4 HO / 4 HA,CO2 Fitted
+Hatch open dims 1/2/3/4 15,75 x 14
+
+        L      B      H      Grain/Bale
+
+Hold 1  22,5   22,2   11,42  140804,90 / 137202,66
+Hold 2  22,5   22,2   11,42  163901,55 / 156647,65
+Hold 3  22,5   22,2   11,42  164537,24 / 156721,81
+Hold 4  21,8   22,2   11,42  160546,54 / 156732,41
+
+             total Grain/bale 629790,22 / 607304,53
 
 
-6-7,000 mt try upto 10,000 mt rice in bulk sf abt 45/46' wog
-Georgetown Gy/Itaqui
-Dec 12 onw try earlier
-2000 mt wwd shinc / 2000 mt wwd shex
-bo fiost
-2.5 ttl here
-
-
-keep in mind we also have
-
-"any size"aggregate in bulk
-Puerto Moin CR / Georgetown Gy
-please advise dwcc basis 6.2, 6.4m and 6,8, 7, 7.5, 8.0m bw draft basis naabsa commencing dis on a high tide
-Dec 1 onw
-5000 wwd shinc/5000 mt wwd shinc for vsls without grabs on board
-8000 wwd shinc/8000 mt wwd shinc for vsls with grabs on board
-bo fiost
-have agents, pda and full terms available
-2.5 ttl here"""
+Gears 4 crane,SWL 12.5 mts,positioned btwn holds - Considered as GearLess
+PANDI: British Marine, Lux"""
 
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo-1106",
-        temperature=0.01,
-        # top_p=0.2,
+        # temperature=0.01,
+        top_p=0.5,
         response_format={ "type": "json_object" },
         messages=[
             {"role": "system", "content": prompt.system},
