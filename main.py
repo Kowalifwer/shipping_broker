@@ -8,7 +8,8 @@ from typing import Any, List
 from datetime import datetime
 from db import MongoEmail, MongoShip, MongoCargo
 from pydantic import ValidationError
-
+from gpt_prompts import prompt
+import json
 from motor.motor_asyncio import AsyncIOMotorClient
 
 app = FastAPI()
@@ -73,6 +74,56 @@ def process_email():
 
 from email.message import EmailMessage
 
+@app.get("/gpt")
+async def gpt_prompt():
+    example = """upto 6-7,000 mt try more rice in big bags abt 1x 1x 1.6-1.7m, abt 1.2 mt
+Georgetown Gy / Guaranao where free d/a
+Dec 8th onw
+2000 mt wwd shinc / 2000 mt wwd shinc
+bo fiost
+2.5 ttl here
+
+
+6-7,000 mt try upto 10,000 mt rice in bulk sf abt 45/46' wog
+Georgetown Gy/Itaqui
+Dec 12 onw try earlier
+2000 mt wwd shinc / 2000 mt wwd shex
+bo fiost
+2.5 ttl here
+
+
+keep in mind we also have
+
+"any size"aggregate in bulk
+Puerto Moin CR / Georgetown Gy
+please advise dwcc basis 6.2, 6.4m and 6,8, 7, 7.5, 8.0m bw draft basis naabsa commencing dis on a high tide
+Dec 1 onw
+5000 wwd shinc/5000 mt wwd shinc for vsls without grabs on board
+8000 wwd shinc/8000 mt wwd shinc for vsls with grabs on board
+bo fiost
+have agents, pda and full terms available
+2.5 ttl here"""
+
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo-1106",
+        temperature=0.01,
+        # top_p=0.2,
+        response_format={ "type": "json_object" },
+        messages=[
+            {"role": "system", "content": prompt.system},
+            {"role": "user", "content": example}
+        ]
+    )
+    json_response = response.choices[0].message.content
+
+    try:
+        final = json.loads(json_response)
+    except Exception as e:
+        print("Error parsing JSON response from GPT-3", e)
+        return {"message": "Error parsing JSON response from GPT-3", "original": json_response}
+
+    return final
+
 async def email_processor(email_message: EmailMessage):
     # 1. Read all UNSEEN emails from the mailbox, every 5 seconds
     # 2. Process each email
@@ -83,50 +134,23 @@ async def email_processor(email_message: EmailMessage):
     # 4. Repeat
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo-1106",
+        temperature=0.2,
+        # top_p=1,
         response_format={ "type": "json_object" },
         messages=[
-            {"role": "system", "content": """
-            You are an intelligent shipping broker email processor, that can read emails which will include either cargoes or ships (or neither, eg. SPAM) and carry out Named Entity Recognition. You must ALWAYS respond with a VALID JSON object that includes all the entities that you can extract from the email. The main field should be a list name "entries", which will be a list of objects, representing either the Ships or the Cargos. Note that the email may contain multiple ships or cargos, and even a combination of both, so please try your best to interpret the email and extract the relevant information.
-
-A CARGO object should contain the following fields:
-1. name i.e the heading for the object, extracted from the email
-2. quantity i.e The quantity of cargo (in metric tons, CBFT, or other appropriate units) for cargoes.
-3. commission: the % commision indicated in the email
-
-A SHIP object should contain the following fields:
-1. name i.e the heading for the object, extracted from the email
-2. capacity i.e  how much weight the ship can carry, (in Deadweight Tonnage (DWT), Gross Tonnage (GT), Net Tonnage (NT) or other appropriate units)
-             
-Example output:
-
-{
-    "entries": [
-        {
-            "type": "ship",
-            "name": "M/V AFRICAN BEE", 
-            "capacity": "37000 dwt",
-        }, 
-        {
-            "type": "cargo",
-            "name": "**MATARANI+PISCO, PERU => 1SBP RIZHAO OR DAFENG**",
-            "quantity": "55000 MT",
-            "commission": "2.5%"
-        }
-    ]
-}
-
-"""},
+            {"role": "system", "content": prompt.system},
             {"role": "user", "content": email_message.body}
         ]
     )
     json_response = response.choices[0].message.content
-    print(json_response)
-    import json
+
     try:
         final = json.loads(json_response)
     except Exception as e:
         print("Error parsing JSON response from GPT-3", e)
         return {"message": "Error parsing JSON response from GPT-3"}
+
+    return final
 
     entries = final.get("entries", [])
     if entries:
