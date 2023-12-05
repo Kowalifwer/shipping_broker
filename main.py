@@ -115,13 +115,17 @@ SDBC MAX 25 Y.O.
     return final
 
 # Create an async FIFO queue for processing emails (acts as a simple MQ pipeline, simple alternative to Celery, for now)
-mail_queue = asyncio.Queue(maxsize=1000) # A maximum buffer of 1,000 emails
+mail_queue = asyncio.Queue(maxsize=10) # A maximum buffer of 1,000 emails
 
 shutdown_background_processes = asyncio.Event()
 
 @app.on_event("shutdown") # on shutdown, shut all background processes too.
 async def shutdown_event_handler():
     shutdown_background_processes.set()
+
+@app.on_event("startup") # handle on startup background process setup
+async def startup_event_handler():
+    ...
 
 @app.get("/start_producer")
 async def start_producer(background_tasks: BackgroundTasks):
@@ -156,6 +160,56 @@ async def endless_mailbox_consumer():
         email = await mail_queue.get() # get email from queue
         print("consumer fetched email from queue")
         await process_email_dummy(email)
+
+async def match_ship_to_cargos(ship: MongoShip):
+    #query all cargos, first in a quantity_int +- 20% range
+    
+    quantity_int = ship.capacity_int
+    percent_difference = 0.2
+    min_quantity_int = int(quantity_int * (1 - percent_difference))
+    max_quantity_int = int(quantity_int * (1 + percent_difference))
+
+    cargos_by_quantity = await db["cargos"].find({
+        "quantity_int": {
+            "$gte": min_quantity_int,
+            "$lte": max_quantity_int
+        }
+    }).to_list()
+
+    print(f"Found {len(cargos_by_quantity)} cargos for ship {ship.name}, in quantity range {min_quantity_int} - {max_quantity_int}")
+
+    #query all cargos where sea_from or sea_to, matches the ships sea
+    cargos_by_sea = await db["cargos"].find({
+        "$or": [
+            {"sea_from": ship.sea},
+            {"sea_to": ship.sea}
+        ]
+    }).to_list()
+
+    print(f"Found {len(cargos_by_sea)} cargos for ship {ship.name}, in sea {ship.sea}")
+
+    #query all cargos where port_from or port_to, matches the ships port
+    cargos_by_port = await db["cargos"].find({
+        "$or": [
+            {"port_from": ship.port},
+            {"port_to": ship.port}
+        ]
+    }).to_list()
+
+    print(f"Found {len(cargos_by_port)} cargos for ship {ship.name}, in port {ship.port}")
+
+async def endless_cargo_ship_matcher():
+    # 1. Endless query for all ships with no cargo pairs
+    # 2. For each ship, find all cargoes that match the ship's criteria (for now via simple querying)
+    # 3. set the ship's matched_cargo_ids
+    # 4. append to the cargo's matched_ship_ids
+
+    # query for all ships with no cargo pairs
+    cursor = db["ships"].find({"pairs_with": []}).batch_size(100)
+    async for ship in cursor:
+        matches = await match_ship_to_cargos(MongoShip.parse_obj(ship))
+
+
 
 async def process_email_dummy(email_message: EmailMessage) -> Union[True, str]:
     print("processing email")
