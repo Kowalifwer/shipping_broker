@@ -1,6 +1,16 @@
-from pydantic import BaseModel, EmailStr, Field, Extra
+from pydantic import BaseModel, EmailStr, Field, Extra, validator
 from typing import List, Optional
 from datetime import datetime
+
+import re
+
+#re.compile(r"(\d+(?:,\d{3})*(?:\.\d+)?)\s*mts?\b", re.IGNORECASE) # for matching numbers with commas and decimals, followed by "mt" or "mts"
+
+def extract_number(s: str) -> Optional[int]:
+    match = re.search(r'\b(\d+(?:,\d{3})*(?:\.\d+)?)\b', s)
+    if match:
+        return int(float(match.group(0).replace(',', '')))
+    return None
 
 class MongoEmail(BaseModel):
     id: Optional[str] # ID of the email(from Message-ID header)
@@ -25,8 +35,23 @@ class MongoShip(BaseModel):
     email: MongoEmail # Email object
     timestamp_created: Optional[datetime] = datetime.now() # Timestamp of when the ship was created
 
+    # Fields to calculate on creation (to be used for simple queries)
+    capacity_int: Optional[int] # Capacity of the ship in integer form
+    month_int: Optional[int] # Month when the ship is available for cargoes in integer form
+
     # Extra fields
     pairs_with: Optional[List[str]] = [] # List of cargo IDs that this ship is paired with
+
+    @validator("capacity_int", pre=True, always=True)
+    def calculate_capacity_int(cls, v, values):
+        # This method is called before validation, and it calculates capacity_int based on capacity
+
+        # If capacity is not specified, pass an empty string to extract_number, which will return None
+        return extract_number(values.get("capacity", ""))
+    
+    @validator("month_int", pre=True, always=True)
+    def calculate_month_int(cls, v, values):
+        ... # TODO: implement this
 
     class Config:
         extra = Extra.allow
@@ -42,12 +67,27 @@ class MongoCargo(BaseModel):
     month: Optional[str] # Month of shipment
     commission: Optional[str] # Commission percentage (e.g., 2.5%)
 
+    # Fields to calculate on creation (to be used for simple queries)
+    quantity_int: Optional[int] # Capacity of the ship in integer form
+    month_int: Optional[int] # Month when the ship is available for cargoes in integer form
+
     # Fields to fill on creation
     email: MongoEmail # Email object
     timestamp_created: Optional[datetime] = datetime.now() # Timestamp of when the cargo was created
 
     # Extra fields
     pairs_with: Optional[List[str]] = [] # List of ship IDs that this cargo is paired with
+
+    @validator("quantity_int", pre=True, always=True)
+    def calculate_quantity_int(cls, v, values):
+        # This method is called before validation, and it calculates quantity_int based on quantity
+
+        # If quantity is not specified, pass an empty string to extract_number, which will return None
+        return extract_number(values.get("quantity", ""))
+    
+    @validator("month_int", pre=True, always=True)
+    def calculate_month_int(cls, v, values):
+        ... # TODO: implement this
 
     class Config:
         extra = Extra.allow
