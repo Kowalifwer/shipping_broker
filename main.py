@@ -2,9 +2,10 @@ from fastapi import FastAPI, Depends, HTTPException, Query, Request, BackgroundT
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from mail import EmailClient
 import asyncio
+from asyncio import Queue
 import configparser
 import imaplib
-from typing import Any, List
+from typing import Any, List, Optional, Union
 from datetime import datetime
 from db import MongoEmail, MongoShip, MongoCargo
 from pydantic import ValidationError
@@ -66,42 +67,34 @@ openai.api_key = config['openai']['api_key']
 async def read_root():
     return {"message": "Welcome to your FastAPI app!"}
 
-endless_task_running = False
-
-
-def process_email():
-    pass
-
 from email.message import EmailMessage
 
 @app.get("/gpt")
 async def gpt_prompt():
-    example = """pls offer yr firm / rated cgo for mv A z a r a open Nemrut 01-02 dec
+    example = """Iskenderun => 1 Italy Adriatic
+Abt 4387 Cbm/937 mts Pipes
+LENGHT OF PIPE: 20M
+Total 83 pieces pipes
+11 Nov/Onwards
+4 ttl days sshex eiu
+3.75%
++++
 
-we hv interest for cgo ex odessa area
-
-mvAZARA
-IMO  9132492 Blt 1997
-Palau Flag Shipping Register of Ukraine
-DWT 13898 / Drft 8,214 mtr
-BC,SID,grab disch,steel floored,
-Grt/Nrt 10220/5123
-LOA/Bm 142,14/22,2
-4 HO / 4 HA,CO2 Fitted
-Hatch open dims 1/2/3/4 15,75 x 14
-
-        L      B      H      Grain/Bale
-
-Hold 1  22,5   22,2   11,42  140804,90 / 137202,66
-Hold 2  22,5   22,2   11,42  163901,55 / 156647,65
-Hold 3  22,5   22,2   11,42  164537,24 / 156721,81
-Hold 4  21,8   22,2   11,42  160546,54 / 156732,41
-
-             total Grain/bale 629790,22 / 607304,53
-
-
-Gears 4 crane,SWL 12.5 mts,positioned btwn holds - Considered as GearLess
-PANDI: British Marine, Lux"""
+Batumi => Split 
+5.000 mt urea in bb, sf'51 1000ex / 1500ex 
+01-10 November 
+3.75% 
++++
+Saint Petersburg, Russia => Koper, Slovenia    
+Abt 10'000 mts +10% in OO, SF abt 1.2 wog , 2 grades to be fully segregated 
+15-20.11.2023
+8000 mts SSHINC / 3500 mts SSHEX
+EIU PWWD OF 24CONSECUTIVE HOURS  BENDS
+CHABE
+SDBC MAX 25 Y.O.
+3.75%
++
+"""
 
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo-1106",
@@ -123,14 +116,31 @@ PANDI: British Marine, Lux"""
 
     return final
 
-async def email_processor(email_message: EmailMessage):
-    # 1. Read all UNSEEN emails from the mailbox, every 5 seconds
-    # 2. Process each email
-    # 2.1 Extract the cargo or ship details from the email body
-    # 2.2 Create a Cargo or Ship object with the extracted details
-    # 2.3 Create an Email object with the email details
-    # 3. Insert the processed email into MongoDB
-    # 4. Repeat
+# Create a FIFO queue for processing emails (acts as a simple MQ pipeline, simple alternative to Celery, for now)
+mail_queue = Queue(maxsize=1000) # A maximum buffer of 1,000 emails
+
+shutdown_event = asyncio.Event()
+
+async def endless_mailbox_producer():
+    # 1. Read all UNSEEN emails from the mailbox, every 5 seconds, or if email queue is processed.
+
+    while not shutdown_event.is_set():
+        emails = await mail_handler.read_emails(
+            #all emails search criteria
+            search_criteria="UNSEEN",
+            num_emails=1,
+            # search_keyword="MAP TA PHUT"
+        )
+        for email in emails:
+            await mail_queue.put(email)
+
+async def endless_mailbox_consumer():
+    # 2. Process all emails in the queue, every 10 seconds, or if email queue is processed.
+    while not shutdown_event.is_set():
+        email = await mail_queue.get() # get email from queue
+        await process_email(email)
+
+async def process_email(email_message: EmailMessage) -> Union[True, str]:
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo-1106",
         temperature=0.2,
@@ -146,93 +156,90 @@ async def email_processor(email_message: EmailMessage):
     try:
         final = json.loads(json_response)
     except Exception as e:
-        print("Error parsing JSON response from GPT-3", e)
-        return {"message": "Error parsing JSON response from GPT-3"}
-
-    return final
+        return "Error parsing JSON response from GPT-3"
 
     entries = final.get("entries", [])
-    if entries:
-        email: MongoEmail = email_message.get_db_object() # Email object will be the same for all entries
-        ignored_entries = []
-        ships = []
-        cargos = []
+    if not entries:
+        return "No entries returned from GPT-3"
 
-        for entry in entries:
-            entry_type = entry.get("type")
-            if entry_type not in ["ship", "cargo"]:
-                print("Invalid entry type", entry_type)
+    email: MongoEmail = email_message.get_db_object() # Email object will be the same for all entries
+    ignored_entries = []
+    ships = []
+    cargos = []
+
+    for entry in entries:
+        entry_type = entry.get("type")
+        if entry_type not in ["ship", "cargo"]:
+            ignored_entries.append(entry)
+            continue
+    
+        if entry_type == "ship":
+            try:
+                ship = MongoShip.parse_obj(entry, validate=False)
+                ship.email = email
+
+                ships.append(ship.dict())
+            except ValidationError as e:
                 ignored_entries.append(entry)
-                continue
+                print("Error validating ship. skipping addition", e)
         
-            if entry_type == "ship":
-                try:
-                    ship = MongoShip(
-                        **entry,
-                        email = email,
-                        timestamp_created = datetime.now()
-                    )
-                    ships.append(ship.dict())
-                except ValidationError as e:
-                    ignored_entries.append(entry)
-                    print("Error validating ship. skipping addition", e)
-            
-            elif entry_type == "cargo":
-                try:
-                    cargo = MongoCargo(
-                        **entry,
-                        email = email,
-                        timestamp_created = datetime.now()
-                    )
-                    cargos.append(cargo.dict())
-                except ValidationError as e:
-                    ignored_entries.append(entry)
-                    print("Error validating cargo. skipping addition", e)
+        elif entry_type == "cargo":
+            try:
+                cargo = MongoCargo.parse_obj(entry, validate=False)
+                cargo.email = email
 
-        if ignored_entries:
-            print("ignored entries", ignored_entries)
+                cargos.append(cargo.dict())
+            except ValidationError as e:
+                ignored_entries.append(entry)
+                print("Error validating cargo. skipping addition", e)
+
+    if ignored_entries:
+        print("ignored entries", ignored_entries)
+    
+    # Insert email into MongoDB
+    await db["emails"].insert_one(email.dict())
+
+    # Insert ships into MongoDB
+    await db["ships"].insert_many(ships)
+    # Insert cargos into MongoDB
+    await db["cargos"].insert_many(cargos)
+
+    return True
         
-        # Insert email into MongoDB
-        await db["emails"].insert_one(email.dict())
-
-        # Insert ships into MongoDB
-        await db["ships"].insert_many(ships)
-        # Insert cargos into MongoDB
-        await db["cargos"].insert_many(cargos)
-
-    else:
-        print("No entries returned from GPT-3")
-    return final
 
 from typing import Union
 # def gpt_response_to_db_objects(gpt_response: dict) -> List[Union[Ship, Cargo]]:
 
+global_task_dict = {} # to track which endless tasks are running
 
-async def endless_task():
-    global endless_task_running
-    while endless_task_running:
-        print("Hello from the endless task")
+async def endless_task(n: int):
+    while global_task_dict.get(n, False): # while task is running. If task not initialized, return False
+        print(f"Hello from the endless task {n}")
         await asyncio.sleep(3)
 
-def start_endless_task(background_tasks: BackgroundTasks):
-    global endless_task_running
-    if not endless_task_running:
-        endless_task_running = True
-        background_tasks.add_task(endless_task)
+def start_endless_task(background_tasks: BackgroundTasks, n: int = 1):
+    if not global_task_dict.get(n, False): # if task not initialized, initialize it
+        global_task_dict[n] = True
+        background_tasks.add_task(endless_task, n)
 
-def stop_endless_task():
-    global endless_task_running
-    endless_task_running = False
+def stop_endless_task(n: int):
+    global_task_dict[n] = False
 
-@app.get("/start")
-async def start_task(background_tasks: BackgroundTasks):
-    start_endless_task(background_tasks)
-    return {"message": "Endless task started in the background."}
+@app.get("/start/{n}")
+async def start_task(n: int, background_tasks: BackgroundTasks):
+    start_endless_task(background_tasks, n)
+    return {"message": f"Endless task {n} started."}
 
-@app.get("/stop")
-async def stop_task():
-    stop_endless_task()
-    return {"message": "Endless task stopped."}
+@app.get("/stop/{n}")
+async def stop_tasks(n: int):
+    stop_endless_task(n)
+    return {"message": f"Endless task {n} stopped."}
+
+@app.get("/stop_all")
+async def stop_all_tasks():
+    for key in global_task_dict:
+        stop_endless_task(key)
+    return {"message": "All tasks stopped."}
 
 @app.get("/read_emails")
 async def read_emails():
@@ -245,7 +252,7 @@ async def read_emails():
     output = "no emails"
     if emails:
         print(emails[0].body)
-        output = await email_processor(emails[0])
+        output = await process_email(emails[0])
         print(output)
 
         # for email_message in emails:

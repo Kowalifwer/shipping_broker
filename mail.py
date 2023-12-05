@@ -84,7 +84,7 @@ class EmailClient:
         if self.imap_connection:
             self.imap_connection.logout()
 
-    def read_emails(self, search_criteria: Literal["UNSEEN", "ALL"] = "UNSEEN", num_emails: int = 10, search_keyword: str = "") -> List[EmailMessage]:
+    async def read_emails(self, search_criteria: Literal["UNSEEN", "ALL"] = "UNSEEN", num_emails: int = 10, search_keyword: str = "") -> List[EmailMessage] or str:
         """
         Reads email messages from the mailbox.
 
@@ -96,15 +96,13 @@ class EmailClient:
             List[EmailMessage]: A list of email message objects.
         """
         if not self.imap_connection:
-            raise Exception("Error: Not connected to the IMAP server.")
+            return "Error: Not connected to the IMAP server"
 
         try:
             self.imap_connection.select(self.mailbox_name)
             search_criteria = f"{search_criteria}"
             if search_keyword:
                 search_criteria = f'({search_criteria} OR SUBJECT "{search_keyword}" BODY "{search_keyword}")'
-            
-            print(f"Searching for emails with criteria: {search_criteria}")
 
             status, email_ids = self.imap_connection.search(None, search_criteria)
             email_id_list = email_ids[0].split()
@@ -121,4 +119,4 @@ class EmailClient:
             return email_messages
 
         except Exception as e:
-            raise Exception(f"Error: Could not fetch emails - {e}")
+            return f"Error: Could not read emails - {e}"
