@@ -2,7 +2,6 @@ from fastapi import FastAPI, Depends, HTTPException, Query, Request, BackgroundT
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from mail import EmailClient
 import asyncio
-from asyncio import Queue
 import configparser
 import imaplib
 from typing import Any, List, Optional, Union
@@ -12,6 +11,7 @@ from pydantic import ValidationError
 from gpt_prompts import prompt
 import json
 from motor.motor_asyncio import AsyncIOMotorClient
+from email.message import EmailMessage
 
 app = FastAPI()
 
@@ -67,8 +67,6 @@ openai.api_key = config['openai']['api_key']
 async def read_root():
     return {"message": "Welcome to your FastAPI app!"}
 
-from email.message import EmailMessage
-
 @app.get("/gpt")
 async def gpt_prompt():
     example = """Iskenderun => 1 Italy Adriatic
@@ -96,7 +94,7 @@ SDBC MAX 25 Y.O.
 +
 """
 
-    response = openai.ChatCompletion.create(
+    response = await openai.ChatCompletion.acreate(
         model="gpt-3.5-turbo-1106",
         # temperature=0.01,
         top_p=0.5,
@@ -116,32 +114,56 @@ SDBC MAX 25 Y.O.
 
     return final
 
-# Create a FIFO queue for processing emails (acts as a simple MQ pipeline, simple alternative to Celery, for now)
-mail_queue = Queue(maxsize=1000) # A maximum buffer of 1,000 emails
+# Create an async FIFO queue for processing emails (acts as a simple MQ pipeline, simple alternative to Celery, for now)
+mail_queue = asyncio.Queue(maxsize=1000) # A maximum buffer of 1,000 emails
 
-shutdown_event = asyncio.Event()
+shutdown_background_processes = asyncio.Event()
+
+@app.on_event("shutdown") # on shutdown, shut all background processes too.
+async def shutdown_event_handler():
+    shutdown_background_processes.set()
+
+@app.get("/start_producer")
+async def start_producer(background_tasks: BackgroundTasks):
+    background_tasks.add_task(endless_mailbox_producer)
+    return {"message": "Mailbox reader producer started"}
+
+@app.get("/start_consumer")
+async def start_consumer(background_tasks: BackgroundTasks):
+    background_tasks.add_task(endless_mailbox_consumer)
+    return {"message": "Mailbox reader consumer started"}
 
 async def endless_mailbox_producer():
     # 1. Read all UNSEEN emails from the mailbox, every 5 seconds, or if email queue is processed.
 
-    while not shutdown_event.is_set():
-        emails = await mail_handler.read_emails(
+    while not shutdown_background_processes.is_set():
+        emails = await mail_handler.read_emails_dummy(
             #all emails search criteria
             search_criteria="UNSEEN",
             num_emails=1,
             # search_keyword="MAP TA PHUT"
         )
-        for email in emails:
+        total = len(emails)
+        print(f"Fetched {total} emails from smtp server")
+
+        for i, email in enumerate(emails):
+            print(f"putting email {i}/{total} in queue")
             await mail_queue.put(email)
 
 async def endless_mailbox_consumer():
     # 2. Process all emails in the queue, every 10 seconds, or if email queue is processed.
-    while not shutdown_event.is_set():
+    while not shutdown_background_processes.is_set():
         email = await mail_queue.get() # get email from queue
-        await process_email(email)
+        print("consumer fetched email from queue")
+        await process_email_dummy(email)
+
+async def process_email_dummy(email_message: EmailMessage) -> Union[True, str]:
+    print("processing email")
+    await asyncio.sleep(5) # simulate the gpt api call time
+    return True
 
 async def process_email(email_message: EmailMessage) -> Union[True, str]:
-    response = openai.ChatCompletion.create(
+    response = await openai.ChatCompletion.acreate(
         model="gpt-3.5-turbo-1106",
         temperature=0.2,
         # top_p=1,

@@ -5,6 +5,8 @@ from email.message import EmailMessage
 from email.policy import SMTPUTF8, default
 from db import MongoEmail
 from datetime import datetime
+import random
+from faker import Faker
 
 ## Additional methods for EmailMessage class
 @property
@@ -120,3 +122,18 @@ class EmailClient:
 
         except Exception as e:
             return f"Error: Could not read emails - {e}"
+    
+    async def read_emails_dummy(self, *args, **kwargs):
+        #return list with 0-10 dummy random emails
+        fake = Faker()
+        email_messages = []
+        for _ in range(random.randint(0,10)):
+            email_message = EmailMessage()
+            email_message["Subject"] = fake.sentence()
+            email_message["From"] = fake.email()
+            email_message["To"] = fake.email()
+            email_message["Date"] = fake.date_time()
+            email_message.set_content(fake.paragraph())
+            email_messages.append(email_message)
+        
+        return email_messages
