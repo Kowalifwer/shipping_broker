@@ -12,6 +12,8 @@ from gpt_prompts import prompt
 import json
 from motor.motor_asyncio import AsyncIOMotorClient
 from email.message import EmailMessage
+import openai
+
 
 app = FastAPI()
 
@@ -53,7 +55,6 @@ mail_handler.connect()
 db_hanlder = AsyncIOMotorClient("mongodb://localhost:27017/")
 db = db_hanlder["broker"]
 
-import openai
 # Load your API key from an environment variable or secret management service
 openai.api_key = config['openai']['api_key']
 
@@ -209,8 +210,6 @@ async def endless_cargo_ship_matcher():
     async for ship in cursor:
         matches = await match_ship_to_cargos(MongoShip.parse_obj(ship))
 
-
-
 async def process_email_dummy(email_message: EmailMessage) -> Union[True, str]:
     print("processing email")
     await asyncio.sleep(5) # simulate the gpt api call time
@@ -238,7 +237,7 @@ async def process_email(email_message: EmailMessage) -> Union[True, str]:
     if not entries:
         return "No entries returned from GPT-3"
 
-    email: MongoEmail = email_message.get_db_object() # Email object will be the same for all entries
+    email: MongoEmail = email_message.get_db_object() # type: ignore - method is assigned to EmailMessage class, inside mail.py
     ignored_entries = []
     ships = []
     cargos = []
@@ -281,10 +280,6 @@ async def process_email(email_message: EmailMessage) -> Union[True, str]:
     await db["cargos"].insert_many(cargos)
 
     return True
-        
-
-from typing import Union
-# def gpt_response_to_db_objects(gpt_response: dict) -> List[Union[Ship, Cargo]]:
 
 global_task_dict = {} # to track which endless tasks are running
 

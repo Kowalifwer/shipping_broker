@@ -1,0 +1,538 @@
+examples = [
+
+    """TEL./FAX: +357 25582139 
+E.MAIL: chartering@unimarservice.com 
++++ 
+IMPORTANT NOTICE => IT'S REGULAR MAIL OF SHIPPING BUSINESS, POSSIBLE DUPLICATE => PLS INFORM
++++
+K. ATTN: CHARTERING DESK
+COULD YOU KINDLY RESPOND AND ADD IN CIRCULARS OUR EMAIL: chartering@unimarservice.com
+
+
+ 
+ 
+DEAR COLLEAGUES,  
+
+GOOD DAY! 
+
+COULD YOU KINDLY OFFER FIRM: 
+ 
++  
+Iskenderun => 1 Italy Adriatic
+Abt 4387 Cbm/937 mts Pipes
+LENGHT OF PIPE: 20M
+Total 83 pieces pipes
+11 Nov/Onwards
+4 ttl days sshex eiu
+3.75%
++++
+
+Batumi => Split 
+5.000 mt urea in bb, sf'51 1000ex / 1500ex 
+01-10 November 
+3.75% 
++++
+Saint Petersburg, Russia => Koper, Slovenia    
+Abt 10'000 mts +10% in OO, SF abt 1.2 wog , 2 grades to be fully segregated 
+15-20.11.2023
+8000 mts SSHINC / 3500 mts SSHEX
+EIU PWWD OF 24CONSECUTIVE HOURS  BENDS
+CHABE
+SDBC MAX 25 Y.O.
+3.75%
++
+END  
+
+PLSD TO HEAR.  
+BRGDS, GARY 
+MOB/WAPP/VBR: +35799581395(24H/7D) 
+SKYPE: IGLIMO 
+AS BROKERS ONLY - SINCE 2006 
++++ 
+In case the content of this message is irrelevant to your business, please notify us by replying "UNSUBSCRIBE" in the subject field in order to remove you from these messages, sorry any inconvenience caused.
+""",
+
+    """TEL./FAX: +357 25582139
+E.MAIL: chartering@unimarservice.com 
+
++++ 
+
+IMPORTANT NOTICE => IT'S REGULAR MAIL OF SHIPPING BUSINESS, POSSIBLE DUPLICATE => PLS INFORM
+
++++
+K. ATTN: CHARTERING DESK
+COULD YOU KINDLY RESPOND AND ADD IN CIRCULARS OUR EMAIL: chartering@unimarservice.com
+
+
+ 
+
+ 
+
+DEAR COLLEAGUES,  
+
+
+GOOD DAY! 
+
+
+COULD YOU KINDLY OFFER FIRM: 
+
+ 
+
++  
+
+RADES => CATANIA + RAVENNA 
+TOTAL 5993 MTS = 377 PIECES STEEL COILS  WITH MIN/MAX U.W. 5/27 MTS FOR CATANIA 1933 MTS = 144 PIECES  STEEL COILS FOR RAVENNA 4060 MTS STEEL COILS- 233 PIECES L/C 31 OCT/03 NOV 
+L/D 1200/1500 MTS REVERSIBLE BEST OFFER INVITED BASIS FREE DA ALL ENDS 
+2.5% 
++++
+Mersin , Turkey =>Jebel Ali , Uae 
+5.388 tons olive oil , cooking oil and rice in palettes   80*120*h 140 cm each palettes 1,1 tons and 2807 palettes oil 3.088 tons   80*120*h 140 cm each palettes 1 ton and 300 palettes cooking oil 300 tons   80*120*h 140 cm each palettes 1 ton and 2000 palettes rice    2.000 tons -Beg.November  , try vessel date   1.000 sshinc / 1.000 fshex 3.75%
++++
+St. Petersburg => Dar Es Salaam (2.5K) + Tanga (4K), Tanzania, bss 1/2
+6500 mtons, bagged AN, IMO 5.1, UN 1942 solo or part cargo
+gross weight of each bag 1003 kg * dimensions: LxBxH / 1.09x1.09x1.15m * max 7 tiers of height * geared tonnage * app 'B' required 
+15- 20 Nov, ttry vsls dates
+1500 SSHINC /1000 SSHINC
+3.75%
++++
+N.CHINA => PG-WCI RANGE14X20 IMO 1.1, TTL  200 TONS
+PPT ONWARDS  
+CAN DO COC OR SOC ON SLOT BSS INVITE OWRS BEST
+5.0%
++++
+XINGANG =>  NOVOROSSIYSK  
+TTL 10000 MTS OF PREPAINTED STEEL SHEETS IN COILS 10 PCT MOLCO U/W 3.5-8.0 MTS, HEIGHT - 1.25MTRS, DIAM - 1.10 - 1.30 MTRS STOWAGE EYE TO EYE, MAX 3 TIERS
+FIOS TERMS
+cqd / cqd
+01-10 DEC 
+5.0% 
++++
+DEL => REDEL PAKISTAN 
+SDBC/GRD/17-25000 MTDWT/BELOW 25 YO - FOR 9 MONTHS +- CHOPT
+CARGO HARMLESS  TRADE PAKISTAN - E. AFRICA - WCI/ECI/SEA
+3.75%
++
+END  
+
+
+
+PLSD TO HEAR.  
+
+BRGDS, GARY 
+
+MOB/WAPP/VBR: +35799581395(24H/7D) 
+
+SKYPE: IGLIMO 
+
+AS BROKERS ONLY - SINCE 2006 
+
++++ 
+
+In case the content of this message is irrelevant to your business, please notify us by replying "UNSUBSCRIBE" in the subject field in order to remove you from these messages, sorry any inconvenience caused.""",
+
+    """TEL./FAX: +357 25582139
+E.MAIL: snp@unimarservice.com 
+
++++ 
+
+IMPORTANT NOTICE => IT'S REGULAR MAIL OF SHIPPING BUSINESS, POSSIBLE DUPLICATE 
+
++++
+K. ATTN: SNP DESK
+
+COULD YOU KINDLY RESPOND AND ADD IN CIRCULARS OUR E.MAIL: snp@unimarservice.com
+
++++
+
+IMPORTANT NOTICE => WE CAN ASSIST WITH SHIP PURCHASE FINANCING ARRANGEMENTS.
+
+
+ 
+
+ 
+
+DEAR COLLEAGUES,  
+
+
+GOOD DAY! 
+
+
+
+FRESH FOR SALE - SHALLOW DRAFT SID/BLT 2008 - 9245.33 MT DWT ON 7.0 M - CAN PASS NANJING BRIDGE - INSPECTABLE AT FAR EAST/SE ASIA
+
+
+
+
+
+SID/BLT 2008
+
+FLAG: PANAMA
+
+CLASS: RINA
+
+GRT/NRT 5723/3270
+
+L/B/D 119/18.8/9M,
+
+G/CAPA 11624.8CBM 2H/2H,
+
+HATCH SIZE NO.1 28.0*12.6M NO.2 29.4*12.6M,
+
+GEARLESS, PNI COVERED
+
+ 
+
+ME maker:  GUANGZHOU DIESEL ENGINE FACTORY.
+
+Model : 6G32   
+
+Power: 2665KW
+
+ 
+
+SERVICE SPEED:
+
+AT SEA 10.5(LADEN)/11(BALLAST) KTS AT 8MT LSFO + 0.5MT LSMGO
+
+AT PORT 0.5 MT LSMGO.
+
+ 
+
+BUNKER GRADE:
+
+IFO ISO8217-2010 (180CST) SULPHUR CONTENT BELOW 0.5%
+
+MGO ISO8217-2010 DMA SULPHUR CONTENT BELOW 0.1%
+
+
+
+SPEED/CONSUMPTION UNDER GOOD WEATHER CONDITIONS UP TO WIND FORCE 4 OF BEAUFORT SCALE AND DOUGLAS SEA STATE 3 WITH NO ADVERSE CURRENT AND NO NEGATIVE INFLUENCE OF SWELL
+
+
+ADA&WOG
+
++
+
+END  
+ 
+
+PLSD TO HEAR.  
+
+ 
+
+BRGDS, GARY 
+
+MOB/WAPP/VBR: +35799581395(24H/7D) 
+
+SKYPE: IGLIMO 
+
+AS BROKERS ONLY - SINCE 2006 
+
++++ 
+
+In case the content of this message is irrelevant to your business, please notify us by replying "UNSUBSCRIBE" in the subject field in order to remove you from these messages, sorry any inconvenience caused.""",
+
+    """TEL./FAX: +357 25582139
+E.MAIL: chartering@unimarservice.com 
+
++++ 
+
+IMPORTANT NOTICE => IT'S REGULAR MAIL OF SHIPPING BUSINESS, POSSIBLE DUPLICATE => PLS INFORM
+
++++
+K. ATTN: CHARTERING DESK
+COULD YOU KINDLY RESPOND AND ADD IN CIRCULARS OUR EMAIL: chartering@unimarservice.com
+
+
+ 
+
+ 
+
+DEAR COLLEAGUES,  
+
+
+GOOD DAY! 
+
+
+COULD YOU KINDLY OFFER FIRM: 
+
+ 
+
++ 
+
+2 SISTERS - OPEN EGYPT MED - FST HLF DECEMBER - 4600 MT DWCC - SID/BOX/6228 CBM/GLESS/1 HO (60X11.45X9.2)/1 HA (56.4X11.45)/RUSS FLAG/2011 BLT => TRY ANY - WCYO PLS?
++++ 
+OPEN GREECE - MID DECEMBER - 5000MT DWCC ON 5.5M  DRFT/4600MT DWCC EX KAVKAZ - SID/2HA-2HO/BOX SHAPED/GLESS/2006 BLT/VANUATU FLG - DIR. BSEA OR ENROUT - TRY ANY - WCYO PLS? 
++++ 
+OPEN VIETNAM - SPOT - 5200 MT DWCC ON 5.59M DRFT - SID/GLESS/BLT 2008 => PREF MED/BSEA/PG/ENROUT - TRY ANY - WCYO PLS?
++++
+OPEN TAIWAN - BEG DECEMBER - 5800MT DWCC  ON 5.8M DRFT - MPP/SID/GLESS/TANZANIA FLG/2004 BLT => PREF MED/BSEA/PG/ENROUT - TRY ANY - WCYO PLS?
++++
+M/V HELENA - EMPLOYED
+- 6912MT DWT- MPP/SID/BOX/CR 2X25MT/BLT 1991/St.Vincent and the Grenadines FLG
++++ 
+M/V HANNA - OPEN BLACK SEA - FST HLF DECEMBER - 8115MT DWT ON 7.2 M DRFT - MPP/SID/BOX/595TEU+10FEU/CR2X60MT/2001 BLT/St.Vincent and the Grenadines FLG => MED/BSEA - TRY ANY - WCYO PLS?
++++
+OPEN PG - SPOT - 8500MT DWCC ON 8.2 M DRFT - SID/IACS/GEARED /2HO-2HA/ 15691 CBM - 554123 CFT/BLT LATE 1990 => TRY ANY - WCYO PLS?
++++
+OPEN MANGALORE, WC INDIA - FIST HALF DECEMBER - 8631MT DWT ON 7.6 M DRFT- MPP/SID<->TWEEN/2HA-2HO BOX/12500CBM/CR 2X30MT/IACS/STK&NAVIS FLG/2010 BLT => CONT/MED/BSEA/ENROUT - TRY ANY - WCYO PLS? 
++++
+OPEN BLACK SEA - END DECEMBER - 9998MT DWT - MPP/TWN/BOX/CR3X30.5MT+DRK1X15MT/BLT 2000 => MED/PG/FAR EAST/ENROUT - TRY ANY - WCYO PLS?
++++
+OPEN FST HLF DEC MARMARA - 10334MT DWT  ON 8.411M DRFT - SID/BOX/IACS/SIDE CR 2X45 MT/2005 BLT => SHORT VOY AEGEAN/ MARMARA/BSEA - WCYO PLS? 
++++
+OPEN TEMA, WC AFRICA - END NOVEMBER - 12000 MT DWT - SID<->TWN/609.000 CBFT/BOX/CR2 x 80/IACS/BARBADOS FLG/2006 BLT => PART CARGO ABT 5000 MTS - MED/BSEA/ENROUT - WCYO PLS?
++++
+OPEN SHANGHAI, CHINA - BEG DECEMBER - 16000 MT  DWT - SID/BOX/GLESS/LBD 139/21.6/8 GRT/NET 9910/5549/ IMO, CO2 FITED/CAMEROON  FLG/BLT 2020 =>MED/BSEA/PG/ENROUT - TRY ANY - WCYO PLS?
++++
+
+OPEN BEG DECEMBER - CHINA - CAPE ABT 175 000MT DWCC ON 18.30 M DRFT- SDBC/IACS/9HO-HA/MI FLG/BLT 2011 => ANY DIRECTION - WCYO PLS? 
++++
+OPEN SPOT- CONTINENT - OIL TANKER ABT 47 000 MT DWT / 2005 BLT - Q88 BY REQUEST => ANY DIRECTION - WCYO PLS? 
+<=====================>
+Bartin (7m drft) => Izmail 
+Up to 7000mts minerals in bb non imo non dangerous 
+Ttl days
+spot 
+3.75%
++++
+1/2 SP WAFR (ABIDJAN/LUANDA RGE EXCL NIGERIA) => 1/2 SP SPORE/CHINA RGE
+DWT 15.000-30.000 MT, GRD FOR MNRLS/STEELS 20/30 DEC TTL DAYS DEP SIZE FRT LPSUM FIOS WITH FREE D/A BENDS 
+1.25% 
++IN DIRECT CONTINUATION OR NOT+
+1 SE Asia  => 1 Marmara  
+M/M 18,500 mts general cargo 
+16/19 Feb 
+ttl days 
+need box , max loa 180 mtrs , max draft 10 mtrs 
+2.5%
++++
+Tripoli, Lebanon => Tuticorin, India  
+M/M 50 - 65 000 mts Rock Phosphate in bulk 
+Spot/Prompt
+6000/8000 Mt pwwdshex/shexeiu 
+Geard vsl imperative 
+Charter at all ends
+Option for multiple voyages 
+3.75%
++++
+Kendawangan, INDONESIA => Taicang, CHINA (12m FW)
+50 000 mts +- 10pct silica sand 7000/20000 SHINC 
+TURN TIME 12H BEND 
+15 -18 Dec 2023   
+3.75%
++
+END  
+
+
+
+PLSD TO HEAR.  
+
+
+
+
+
+BRGDS, GARY 
+
+MOB/WAPP/VBR: +35799581395(24H/7D) 
+
+SKYPE: IGLIMO 
+
+AS BROKERS ONLY - SINCE 2006 
+
++++ 
+
+In case the content of this message is irrelevant to your business, please notify us by replying "UNSUBSCRIBE" in the subject field in order to remove you from these messages, sorry any inconvenience caused.""",
+
+
+    """TEL./FAX: +357 25582139
+E.MAIL: chartering@unimarservice.com 
+
++++ 
+
+IMPORTANT NOTICE => IT'S REGULAR MAIL OF SHIPPING BUSINESS, POSSIBLE DUPLICATE => PLS INFORM
+
++++
+K. ATTN: CHARTERING DESK
+COULD YOU KINDLY RESPOND AND ADD IN CIRCULARS OUR EMAIL: chartering@unimarservice.com
+
+
+ 
+
+ 
+
+DEAR COLLEAGUES,  
+
+
+GOOD DAY! 
+
+
+COULD YOU KINDLY OFFER FIRM: 
+
+ 
+
++ 
+
+OPEN INDIA - SPOT - 4600 MT DWCC - SID/BOX/6228 CBM/GLESS/1 HO (60X11.45X9.2)/1 HA (56.4X11.45)/RUSS FLAG/2011 BLT => MED/BSEA/PG/ENROUT - TRY ANY - WCYO PLS?
++++ 
+OPEN MARMARA - BEG DECEMBER - 5000MT DWCC ON 5.5M  DRFT/4600MT DWCC EX KAVKAZ - SID/2HA-2HO/BOX SHAPED/GLESS/2006 BLT/VANUATU FLG - DIR. BSEA OR ENROUT - TRY ANY - WCYO PLS? 
++++ 
+OPEN TAIWAN - BEG DECEMBER - 5800MT DWCC  ON 5.8M DRFT - MPP/SID/GLESS/TANZANIA FLG/2004 BLT => PREF MED/BSEA/PG/ENROUT - TRY ANY - WCYO PLS?
++++
+OPEN BLACK SEA - END NOVEMBER - 6500 MT DWCC ON ON 6.91 M DRFT- SID/3HO-3HA/CR2X15MT/IACS/BARBADOS FLG/1996 BLT - TRY ANY - WCYO PLS?
++++
+M/V HELENA - EMPLOYED
+- 6912MT DWT- MPP/SID/BOX/CR 2X25MT/BLT 1991/St.Vincent and the Grenadines FLG
++++ 
+M/V HANNA - OPEN BLACK SEA - FIST HALF DECEMBER - 8115MT DWT ON 7.2 M DRFT - MPP/SID/BOX/595TEU+10FEU/CR2X60MT/2001 BLT/St.Vincent and the Grenadines FLG => MED/BSEA - TRY ANY - WCYO PLS?
++++
+OPEN PG - SPOT - 8500MT DWCC ON 8.2 M DRFT - SID/IACS/GEARED /2HO-2HA/ 15691 CBM - 554123 CFT/BLT LATE 1990 => TRY ANY - WCYO PLS?
++++
+OPEN MANGALORE, WC INDIA - FIST HALF DECEMBER - 8631MT DWT ON 7.6 M DRFT- MPP/SID<->TWEEN/2HA-2HO BOX/12500CBM/CR 2X30MT/IACS/STK&NAVIS FLG/2010 BLT => CONT/MED/BSEA/ENROUT - TRY ANY - WCYO PLS? 
++++
+OPEN ST. PETERSBURG, BALTIC - SPOT - 9998 MT DWT - MPP/TWN/BOX/CR3X30.5MT+DRK1X15MT/BLT 2000 => MED/PG/FAR EAST/ENROUT - TRY ANY - WCYO PLS?
++++
+OPEN TEMA, WC AFRICA - END NOVEMBER - 12000 MT DWT - SID<->TWN/609.000 CBFT/BOX/CR2 x 80/IACS/BARBADOS FLG/2006 BLT => PART CARGO ABT 5000 MTS - MED/BSEA/ENROUT - WCYO PLS?
++++
+OPEN SHANGHAI, CHINA - BEG DECEMBER - 16000 MT  DWT - SID/BOX/GLESS/LBD 139/21.6/8 GRT/NET 9910/5549/ IMO, CO2 FITED/CAMEROON  FLG/BLT 2020 =>MED/BSEA/PG/ENROUT - TRY ANY - WCYO PLS?
++++
+
+OPEN BEG DECEMBER - CHINA - CAPE ABT 175 000MT DWCC ON 18.30 M DRFT- SDBC/IACS/9HO-HA/MI FLG/BLT 2011 => ANY DIRECTION - WCYO PLS? 
++++
+OPEN END NOVEMBER - CONTINENT - OIL TANKER ABT 47 000 MT DWT / 2005 BLT - Q88 BY REQUEST - WCYO PLS? 
+<=====================>
+Kavkaz(5.0m) => 1 Marmara
+4000-5000mts Wheat, sf 45-46 
+Ttl wwdays 
+Spot, try vsls dates 
+1.25%
++++
+1 Romania =>1 Yemen  
+Abt 15.000mt blk sojabean seeds max 50‘ 
+10/20 Dec 
+2000/2000
+5.0%
++++
+St.Petersburg => 1 Tunisia
+12.000 mts 10 pct AN in blk (imo 5.1,un1942) 
+05/07 Dec
+3000c/1200c
+5.0%
++++ 
+1/2 SP WAFR (ABIDJAN/LUANDA RGE EXCL NIGERIA) => 1/2 SP SPORE/CHINA RGE
+DWT 15.000-30.000 MT, GRD FOR MNRLS/STEELS 20/30 DEC TTL DAYS DEP SIZE FRT LPSUM FIOS WITH FREE D/A BENDS 
+2.5%
++
+END  
+
+
+
+PLSD TO HEAR.  
+
+
+
+
+
+BRGDS, GARY 
+
+MOB/WAPP/VBR: +35799581395(24H/7D) 
+
+SKYPE: IGLIMO 
+
+AS BROKERS ONLY - SINCE 2006 
+
++++ 
+
+In case the content of this message is irrelevant to your business, please notify us by replying "UNSUBSCRIBE" in the subject field in order to remove you from these messages, sorry any inconvenience caused.""",
+
+    """TEL./FAX: +357 25582139
+E.MAIL: chartering@unimarservice.com 
+
++++ 
+
+IMPORTANT NOTICE => IT'S REGULAR MAIL OF SHIPPING BUSINESS, POSSIBLE DUPLICATE => PLS INFORM
+
++++
+K. ATTN: CHARTERING DESK
+COULD YOU KINDLY RESPOND AND ADD IN CIRCULARS OUR EMAIL: chartering@unimarservice.com
+
+
+ 
+
+ 
+
+DEAR COLLEAGUES,  
+
+
+GOOD DAY! 
+
+
+COULD YOU KINDLY OFFER FIRM: 
+
+ 
+
++ 
+
+M/V Hanna - OPEN NOVOROSSIYSK SH NOV -> WCYO pls?
+MPP/SID/8115MT DWT
+Built 2001, St.Vincent and the Grenadines
+cranes 2 x 60 mts
+ADA&WOG
++++
+M/V Helena - OPEN NOVOROSSIYSK SH NOV -> WCYO pls?
+MPP/SID/6912MT DWT
+
+Built 1991, St.Vincent and the Grenadines
+cranes 2 x 25 mts
+ADA&WOD
++++
+OPEN VIETNAM - MID NOV - 4600 MT DWCC - SID/BOX/6228 CBM/GLESS/1 HO (60X11.45X9.2)/1 HA (56.4X11.45)/RUSS FLAG/2011 BLT => MED/BSEA/PG/ENROUT - TRY ANY - WCYO PLS?
++++
+OPEN TEMA, WC AFRICA - SH NOV - 12000 MT DWT - SID<->TWN/609.000 CBFT/BOX/CR2 x 80/IACS/BARBADOS FLG/2006 BLT => MED/BSEA/PG/FAR EAST/ENROUT - TRY ANY - WCYO PLS?
++++
+OPEN SHANGHAI, CHINA - END NOV - 16000 MT  DWT - SID/BOX/GLESS/LBD 139/21.6/8 GRT/NET 9910/5549/ IMO, CO2 FITED/CAMEROON  FLG/BLT 2020 =>MED/BSEA/PG/ENROUT - TRY ANY - WCYO PLS?
++++
+
+OPEN BEG DEC - CHINA - ABT 175 000MT DWCC ON 18.30 M DRFT- SDBC/IACS/9HO-HA/MI FLG/BLT 2011 => ANY DIRECTION - WCYO PLS? 
+<=====================>
+Novorossiysk => Vietnam  
+abt 2720 mts steel pipes, l abt 12m 
+3-6 December 
+4/6 wwd sshex uu 
+5.0%
+Novorossiysk => Haiphong
+3000-3500 mts of various generals under deck only 
+end of November 
+3/3 days 
+Gencon’94 
+5.0% 
++ in combination or not +
+Novorossiysk, Russia  => Kandla, India 
+abt 7,000 mt of STEELS 
+spot-ppt - onw - try vsls dates
+1.500 sshinc / liner out 
+pc ok
+2.5%
++
+END  
+
+
+
+PLSD TO HEAR.  
+
+
+
+
+
+BRGDS, GARY 
+
+MOB/WAPP/VBR: +35799581395(24H/7D) 
+
+SKYPE: IGLIMO 
+
+AS BROKERS ONLY - SINCE 2006 
+
++++ 
+
+In case the content of this message is irrelevant to your business, please notify us by replying "UNSUBSCRIBE" in the subject field in order to remove you from these messages, sorry any inconvenience caused."""
+]

@@ -1,12 +1,13 @@
 import imaplib
 import email
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Union
 from email.message import EmailMessage
 from email.policy import SMTPUTF8, default
 from db import MongoEmail
 from datetime import datetime
 import random
 from faker import Faker
+from training.dummy_emails import examples
 
 ## Additional methods for EmailMessage class
 @property
@@ -14,7 +15,6 @@ def body(self):
     body = self.get_body(preferencelist=('plain', 'html'))
     if body:
         charset = body.get_charset()
-        print(charset)
         if charset:
             return body.get_content().decode(charset)
         else:
@@ -86,7 +86,7 @@ class EmailClient:
         if self.imap_connection:
             self.imap_connection.logout()
 
-    async def read_emails(self, search_criteria: Literal["UNSEEN", "ALL"] = "UNSEEN", num_emails: int = 10, search_keyword: str = "") -> List[EmailMessage] or str:
+    async def read_emails(self, search_criteria: Literal["UNSEEN", "ALL"] = "UNSEEN", num_emails: int = 10, search_keyword: str = "") -> Union[List[EmailMessage], str]:
         """
         Reads email messages from the mailbox.
 
@@ -102,20 +102,23 @@ class EmailClient:
 
         try:
             self.imap_connection.select(self.mailbox_name)
-            search_criteria = f"{search_criteria}"
+            search_str: str = f"{search_criteria}"
             if search_keyword:
-                search_criteria = f'({search_criteria} OR SUBJECT "{search_keyword}" BODY "{search_keyword}")'
+                search_str = f'({search_str} OR SUBJECT "{search_keyword}" BODY "{search_keyword}")'
 
-            status, email_ids = self.imap_connection.search(None, search_criteria)
+            status, email_ids = self.imap_connection.search(None, search_str)
             email_id_list = email_ids[0].split()
             num_emails_to_fetch = min(num_emails, len(email_id_list))
             email_messages: List[EmailMessage] = []
             
             for i in range(-1, -1*num_emails_to_fetch-1, -1): # Fetch emails in reverse order
                 status, email_data = self.imap_connection.fetch(email_id_list[i], "(RFC822)")
-                raw_email = email_data[0][1]
-                email_message = email.message_from_bytes(raw_email, _class=EmailMessage, policy=SMTPUTF8)
-                email_messages.append(email_message)
+
+                email_data = email_data[0]
+                if isinstance(email_data, tuple):
+                    raw_email = email_data[1]
+                    email_message = email.message_from_bytes(raw_email, _class=EmailMessage, policy=SMTPUTF8)
+                    email_messages.append(email_message) # type: ignore - we specified the _class argument to EmailMessage
 
 
             return email_messages
@@ -133,7 +136,7 @@ class EmailClient:
             email_message["From"] = fake.email()
             email_message["To"] = fake.email()
             email_message["Date"] = fake.date_time()
-            email_message.set_content(fake.paragraph())
+            email_message.set_content(random.choice(examples)) #randomly choose one of the dummy emails
             email_messages.append(email_message)
         
         return email_messages
