@@ -189,13 +189,23 @@ async def read_emails_azure():
     
     # check if client is connected to Azure
 
-    messages = await EmailClientAzure(azure_client).get_emails("chartering@morskazvezda.si")
+    messages = await EmailClientAzure(azure_client).get_emails(
+        "brokers@murexsal.com",
+        top=1,
+    )
+    if isinstance(messages, str):
+        return {"message": messages}
     
-    print(len(messages))
-    if len(messages) < 1000:
-        print(messages)
-    else:
-        print(messages[0])
+
+    for message in messages:
+        print(message.id)
+        print(message.subject)
+        print(message.is_read)
+        print(message.body_preview)
+        
+        message.received_date_time
+    
+    return {"message": messages}
 
 async def endless_cargo_ship_matcher():
     # 1. Endless query for all ships with no cargo pairs

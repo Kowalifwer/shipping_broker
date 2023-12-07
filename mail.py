@@ -1,7 +1,10 @@
 import imaplib
 import email
 from typing import List, Optional, Literal, Union
+
 from email.message import EmailMessage
+from msgraph.generated.models.message import Message
+
 from email.policy import SMTPUTF8, default
 from db import MongoEmail
 from datetime import datetime
@@ -11,6 +14,7 @@ from training.dummy_emails import examples
 from msgraph import GraphServiceClient
 
 ## Additional methods for EmailMessage class
+
 @property
 def body(self):
     body = self.get_body(preferencelist=('plain', 'html'))
@@ -34,8 +38,22 @@ def get_db_object(self) -> MongoEmail:
         body=self.body
     )
 
-EmailMessage.body = body
-EmailMessage.get_db_object = get_db_object
+def get_db_object_azure(self) -> MongoEmail:
+    #First 50 recipients
+    return MongoEmail(
+        id=self.id,
+        subject=self.subject,
+        sender=self.sender.email_address.address,
+        recipients=str(self.to_recipients[:50]),
+        date_received=str(self.recieved_date_time),
+        timestamp_processed=datetime.now(),
+        body=str(self.body)
+    )
+
+EmailMessage.body = body # type: ignore - attaching a property to an existing class
+EmailMessage.get_db_object = get_db_object # type: ignore - adding a method to an existing class
+
+Message.get_db_object = get_db_object_azure # type: ignore - adding a method to an existing class
 
 ## End of additional methods for EmailMessage class
 
@@ -211,7 +229,7 @@ class EmailClientAzure:
         except Exception as e:
             return str(e)
     
-    async def get_emails(self, sender_email: str = "") -> Union[list, str]:
+    async def get_emails(self, sender_email: Optional[str], search: Optional[str] = None, top: Optional[int] = 5, unseen_only: bool = True) -> Union[List[Message], str]:
         """
         Retrieves a list of email messages from the user's mailbox.
 
@@ -226,20 +244,33 @@ class EmailClientAzure:
         """
 
         try:
-            query_params = None
-            if sender_email:
-                query_params = MessagesRequestBuilder.MessagesRequestBuilderGetQueryParameters(
-                    # filter=f'from/emailAddress/address eq \'{sender_email}\'',
-                    search='MAP TA PHUT',
-                )
+            query_params = {
+                "filter": 'isRead eq false',
+                "top": top,
+                "orderby": ['receivedDateTime desc'],
+            }
+
+            # if sender_email:
+            #     query_params["filter"] = f'from/emailAddress/address eq \'{sender_email}\''
+            # if unseen_only:
+            #     if query_params["filter"]:
+            #         query_params["filter"] += ' and '
+            #     query_params["filter"] += 'isRead eq false'
+            if search:
+                query_params["search"] = search
 
             config = MessagesRequestBuilder.MessagesRequestBuilderGetRequestConfiguration(
-                query_parameters=query_params,
+                query_parameters = MessagesRequestBuilder.MessagesRequestBuilderGetQueryParameters(**query_params),
+                headers={
+                    "Prefer": "outlook.body-content-type=\"text\"",
+                },
             )
             
             messages = await self.client.me.messages.get(config)
+            if messages:
+                message_list = messages.value
+                return message_list if message_list else []
 
-            return messages.value
         except Exception as e:
             return str(e)
 
