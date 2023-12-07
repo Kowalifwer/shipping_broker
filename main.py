@@ -228,6 +228,9 @@ async def process_email_dummy(email_message: EmailMessageAdapted) -> Union[bool,
     return True
 
 async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
+    
+    #https://github.com/openai/openai-cookbook/blob/main/examples/api_request_parallel_processor.py -> parallel processing example
+
     response = await openai.ChatCompletion.acreate(
         model="gpt-3.5-turbo-1106",
         temperature=0.2,
