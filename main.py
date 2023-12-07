@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
-from mail import EmailClient
+from mail import EmailClientSMTP, EmailClientAzure
 import asyncio
 import configparser
 import imaplib
@@ -13,11 +13,15 @@ import json
 from motor.motor_asyncio import AsyncIOMotorClient
 from email.message import EmailMessage
 import openai
-
+import msal
+import requests
+import mail_init
 
 app = FastAPI()
 
 #uvicorn main:app --reload
+#https://admin.exchange.microsoft.com/#/settings
+#https://admin.microsoft.com/#/users/:/UserDetails/6943c12b-f238-483e-af43-8e4cf25ba599/Mail
 
 # Get credentials from config.cfg
 config = configparser.ConfigParser()
@@ -25,31 +29,12 @@ config.read('config.cfg')
 
 # Set your Outlook email and password (or App Password if 2FA is enabled)
 email_address = config['imap']['email']
-imap_password = config['imap']['pw']
+email_password = config['imap']['pw']
 
-# Outlook IMAP settings
-imap_server = "outlook.office365.com"  # Use "outlook.office.com" for Outlook.com accounts
-imap_port = 993  # IMAPS port (secure)
-
-# Connect to the Outlook IMAP server
-try:
-    imap_connection = imaplib.IMAP4_SSL(imap_server, imap_port)
-    imap_connection.login(email_address, imap_password)
-except Exception as e:
-    print(f"Error: Could not connect to the server - {e}")
+azure_client = mail_init.connect_to_azure(config["azure"])
+if isinstance(azure_client, str):
+    print(azure_client)
     exit()
-
-# Initialize the EmailClient
-
-mail_handler = EmailClient(
-    imap_server=imap_server,
-    imap_port=imap_port,
-    email_address=email_address,
-    password=imap_password,
-    mailbox_name="INBOX",
-)
-
-mail_handler.connect()
 
 # Connect to MongoDB
 db_hanlder = AsyncIOMotorClient("mongodb://localhost:27017/")
@@ -198,6 +183,19 @@ async def match_ship_to_cargos(ship: MongoShip):
     }).to_list()
 
     print(f"Found {len(cargos_by_port)} cargos for ship {ship.name}, in port {ship.port}")
+
+@app.get("/read_emails_azure")
+async def read_emails_azure():
+    
+    # check if client is connected to Azure
+
+    messages = await EmailClientAzure(azure_client).get_emails("chartering@morskazvezda.si")
+    
+    print(len(messages))
+    if len(messages) < 1000:
+        print(messages)
+    else:
+        print(messages[0])
 
 async def endless_cargo_ship_matcher():
     # 1. Endless query for all ships with no cargo pairs
