@@ -185,34 +185,6 @@ async def match_ship_to_cargos(ship: MongoShip):
 
     print(f"Found {len(cargos_by_port)} cargos for ship {ship.name}, in port {ship.port}")
 
-@app.get("/read_emails_azure")
-async def read_emails_azure():
-    
-    # check if client is connected to Azure
-
-    messages = await email_client.get_emails(
-        "chartering@morskazvezda.si",
-        top=1,
-    )
-
-    if isinstance(messages, str):
-        return {"message": messages}
-    
-
-    for message in messages:
-        print(message.base.id)
-        print(message.base.subject)
-        print(message.base.is_read)
-        print(message.base.body_preview)
-        print(message.base.received_date_time)
-
-        output = await process_email(message)
-        if output != True:
-            return {"message": output}
-
-
-    return {"message": messages}
-
 async def endless_cargo_ship_matcher():
     # 1. Endless query for all ships with no cargo pairs
     # 2. For each ship, find all cargoes that match the ship's criteria (for now via simple querying)
@@ -249,6 +221,29 @@ async def email_to_json_via_openai(email_message: EmailMessageAdapted) -> Union[
     except Exception as e:
         return f"Error in email_to_json_via_openai - {e}"
     
+@app.get("/read_emails_azure")
+async def read_emails_azure():
+    
+    # check if client is connected to Azure
+
+    messages = await email_client.get_emails(
+        top=100,
+        most_recent_first=True
+    )
+
+    if isinstance(messages, str):
+        return {"error": messages}
+    
+
+    for i, message in enumerate(messages, start=1):
+        print(f"msg {i}: {message.date_received}")
+
+        output = await process_email(message)
+        if output != True:
+            return {"message": output}
+
+
+    return {"message": messages}
 
 async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     
@@ -256,8 +251,14 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
 
     # run some checks on email, to make sure it is worthy of processing
     # check if email is already in db
-    email_in_db = await db["emails"].find_one({"message_id": email_message.message_id})
+    email_in_db = await db["emails"].find_one({"id": email_message.id})
+    if email_in_db:
+        print("Email already in database. ignoring")
+    else:
+        print("Email not in database. inserting")
+        await db["emails"].insert_one(email_message.mongo_db_object.dict())
 
+    return True
 
     # Converting email to JSON via GPT-3.5
     gpt_response = await email_to_json_via_openai(email_message)
