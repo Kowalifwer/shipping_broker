@@ -40,11 +40,31 @@ class CustomGraphServiceClient(GraphServiceClient):
     
     @property
     def me(self):
-        """If a user id is provided, this will reroute from /me to /users/{{user-id}}. Otherwise, it will return the default .me property."""
+        """Overrides the existing me property, to reroute to self.users.by_user_id if user_id is provided."""
         if self.user_id:
             return self.users.by_user_id(self.user_id)
 
         return super().me
+    
+    @property
+    def me_url_without_base(self):
+        """Returns the access point AFTER the base URL.
+           returns /me if no user id is provided. 
+           returns /users/{{user-id}} if user id is provided."""
+        if self.user_id:
+            return f"/users/{self.user_id}"
+
+        return "/me"
+    
+    @property
+    def base_url(self):
+        """Returns the base URL of the Graph API with the access point, e.g. https://graph.microsoft.com/v1.0/me or https://graph.microsoft.com/v1.0/users/{{user-id}}"""
+        base_url = self.path_parameters.get("base_url")
+        if self.user_id:
+            return f"{base_url}/users/{self.user_id}"
+
+        return base_url
+
 
 def connect_to_azure(azure_conf) -> Union[CustomGraphServiceClient, str]:
     
