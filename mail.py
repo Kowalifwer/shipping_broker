@@ -1,6 +1,6 @@
 import imaplib
 import email
-from typing import List, Optional, Literal, Union
+from typing import List, Optional, Literal, Union, Type, Any
 
 from email.message import EmailMessage as BaseEmailMessage
 from msgraph.generated.models.message import Message as AzureEmailMessage
@@ -15,17 +15,35 @@ from datetime import datetime
 import random
 from faker import Faker
 from training.dummy_emails import examples
-from functools import partial
+import requests
+import httpx
 
-def optional_chain(obj, return_if_fails, *attrs):
-    """Returns the value of the first attribute in attrs that is not None, or {return_if_fails} if all attributes are None."""
+BATCH_REQUEST_LIMIT = 20
+
+def subject_reveals_email_is_failed(text: str) -> bool:
+    """Returns True if the subject reveals that the email is an undeliverable email, False otherwise."""
+
+    word_list = ["undeliverable", "not read", "rejected", "failure", "spam", "rejected"] # maybe notification? 
+    
+    lowercase_text = text.lower()
+    for word in word_list:
+        if word in lowercase_text:
+            return True
+    return False
+
+def optional_chain(obj, return_if_fails, *attrs) -> Any:
+    """Returns the last value in the chain of attributes, or {return_if_fails} upon the first failure"""
     for attr in attrs:
-        obj = getattr(obj, attr)
-        if obj is not None:
-            return obj
-    return return_if_fails
+        if not hasattr(obj, attr):
+            return return_if_fails
 
-def optional_chain_return_str(obj, *attrs):
+        obj = getattr(obj, attr)
+        if obj is None:
+            return return_if_fails
+
+    return obj
+
+def optional_chain_return_empty_str(obj, *attrs):
     """Returns the value of the first attribute in attrs that is not None, or "" if all attributes are None."""
     return optional_chain(obj, "", *attrs)
 
@@ -35,25 +53,23 @@ class EmailMessageAdapted:
         if not isinstance(base, (BaseEmailMessage, AzureEmailMessage)):
             raise TypeError("base must be an instance of BaseEmailMessage or AzureEmailMessage.")
         # Store a reference to the base object
-        self._base = base
-    
+        self._base = base    
 
     ## Start of additional methods for EmailMessageAdapted class
     @property
     def id(self) -> str:
         if isinstance(self._base, AzureEmailMessage):
-            return optional_chain_return_str(self._base, "id")
+            return optional_chain_return_empty_str(self._base, "id")
 
         elif isinstance(self._base, BaseEmailMessage):
             return self._base["Message-ID"]
 
         return ""
 
-
     @property
     def subject(self) -> str:
         if isinstance(self._base, AzureEmailMessage):
-            return optional_chain_return_str(self._base, "subject")
+            return optional_chain_return_empty_str(self._base, "subject")
 
         elif isinstance(self._base, BaseEmailMessage):
             return self._base["Subject"]
@@ -63,7 +79,7 @@ class EmailMessageAdapted:
     @property
     def sender(self) -> str:
         if isinstance(self._base, AzureEmailMessage):
-            return optional_chain_return_str(self._base, "sender", "email_address", "address")
+            return optional_chain_return_empty_str(self._base, "sender", "email_address", "address")
 
         elif isinstance(self._base, BaseEmailMessage):
             return self._base["From"]
@@ -91,7 +107,7 @@ class EmailMessageAdapted:
     @property
     def date_received(self) -> str:
         if isinstance(self._base, AzureEmailMessage):
-            return str(optional_chain_return_str(self._base, "received_date_time"))
+            return str(optional_chain_return_empty_str(self._base, "received_date_time"))
 
         elif isinstance(self._base, BaseEmailMessage):
             return self._base["Date"]
@@ -99,9 +115,19 @@ class EmailMessageAdapted:
         return ""
     
     @property
+    def is_read(self) -> bool:
+        if isinstance(self._base, AzureEmailMessage):
+            return optional_chain(self._base, False, "is_read")
+
+        elif isinstance(self._base, BaseEmailMessage):
+            return True
+
+        return False
+    
+    @property
     def body(self) -> str:
         if isinstance(self._base, AzureEmailMessage):
-            return optional_chain_return_str(self._base, "body", "content")
+            return optional_chain_return_empty_str(self._base, "unique_body", "content")
 
         elif isinstance(self._base, BaseEmailMessage):
             body = self._base.get_body(preferencelist=('plain', 'html'))
@@ -294,7 +320,80 @@ class EmailClientAzure:
         except Exception as e:
             return str(e)
     
-    async def get_emails(self, sender_email: Optional[str], search: Optional[str] = None, top: Optional[int] = 5, unseen_only: bool = True) -> Union[List[EmailMessageAdapted], str]:
+
+    async def set_emails_to_read(self, email_ids: List[str]) -> bool:
+        #split email ids into batches based on BATCH_REQUEST_LIMIT
+        batches = [email_ids[i:i + BATCH_REQUEST_LIMIT] for i in range(0, len(email_ids), BATCH_REQUEST_LIMIT)]
+
+        print(f"Will set {len(email_ids)} emails to read in {len(batches)} batches")
+        for batch in batches:
+            status = await self._set_emails_to_read(batch)
+            if not status:
+                return False
+            print(f"Batch completed")
+
+        return True
+
+    async def _set_emails_to_read(self, email_ids: List[str]) -> bool:
+
+        batch_requests = []
+
+        for i, email_id in enumerate(email_ids, start=1):
+
+            # Construct the URL for the specific email
+            request_url = f"{self.client.me_url_without_base}/messages/{email_id}"
+
+            # Construct the request body to update the 'isRead' property
+            request_body = {
+                "isRead": "true"
+            }
+
+            # Add the PATCH request to the batch
+            batch_requests.append({
+                "method": "PATCH",
+                "url": request_url,
+                "id": i,
+                "headers": {
+                    "Content-Type": "application/json",
+                },
+                "body": request_body,
+            })
+
+        # Send the batch request (async, since it might take some time)
+        async with httpx.AsyncClient() as client:
+            batch_response = await client.post(
+                url="https://graph.microsoft.com/v1.0/$batch",
+                json={"requests": batch_requests},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.client.access_token_str}",
+                },
+            )
+
+            # Check if the batch request was successful
+            if batch_response.status_code != 200:
+                print(f"Error: Could not update emails to read - {batch_response.text}")
+                return False
+            
+            for response in batch_response.json()["responses"]:
+                if response["status"] != 200:
+                    print(f"Error: Could not update email {response['id']} to read - {response['body']['error']['message']}")
+
+        return True
+    
+    # Note: cannot sort by date recieved AND filter by name. Only one or the other.
+    async def get_emails(self, 
+        # Below are the parameters for the api call
+        sender_email: Optional[str] = None,
+        search: Optional[str] = None,
+        top: Optional[int] = 5,
+        unseen_only: bool = True,
+        most_recent_first: bool = True,
+
+        # Below are the parameters for post-processing
+        exclude_undelivered: bool = True,
+        set_to_read: bool = True,
+    ) -> Union[List[EmailMessageAdapted], str]:
         """
         Retrieves a list of email messages from the user's mailbox.
 
@@ -306,21 +405,33 @@ class EmailClientAzure:
 
         Raises:
             Exception: If an error occurs during the operation.
-        """
 
+        API Reference: https://learn.microsoft.com/en-us/graph/api/message-get?view=graph-rest-1.0&tabs=python
+        and: https://learn.microsoft.com/en-us/graph/query-parameters?tabs=http
+        """
         try:
             query_params = {
-                "filter": 'isRead eq false',
                 "top": top,
-                "orderby": ['receivedDateTime desc'],
+                "select": ['id', 'subject', 'sender', 'toRecipients', 'receivedDateTime', 'uniqueBody', 'isRead'],
             }
 
             # if sender_email:
             #     query_params["filter"] = f'from/emailAddress/address eq \'{sender_email}\''
-            # if unseen_only:
+
+            # if exclude_undelivered:
             #     if query_params["filter"]:
             #         query_params["filter"] += ' and '
-            #     query_params["filter"] += 'isRead eq false'
+
+            #     # check if subject contains 'Undeliverable:'
+            #     query_params["filter"] += 'not startswith(subject, \'Undeliverable:\')'
+
+            if most_recent_first:
+                query_params["orderby"] = ['receivedDateTime desc']
+
+            # Take care if chaining filters in the future!
+            if unseen_only:
+                query_params["filter"] = 'isRead eq false'
+
             if search:
                 query_params["search"] = search
 
@@ -334,8 +445,32 @@ class EmailClientAzure:
             messages = await self.client.me.messages.get(config)
             if messages:
                 message_list = messages.value
-                return [EmailMessageAdapted(message) for message in message_list] if message_list else []
+                if message_list is not None:
+
+                    # Sets emails to READ
+                    if set_to_read:
+                        time = datetime.now()
+                        status = await self.set_emails_to_read([str(message.id) for message in message_list])  #  Consider fire and forget so the function does not need to wait to return the list of messages
+                        print(f"Set emails to read in {datetime.now() - time} seconds")
+
+                    # Assembles the list of messages to return
+                    final_message_list: List[EmailMessageAdapted] = []
+                    count = 0
+                    for message in message_list:
+                        
+                        # Handles the case of frequent exchange underliverable emails.
+                        if exclude_undelivered:
+                            if message.subject:
+                                if subject_reveals_email_is_failed(message.subject):
+                                    count += 1
+                                    continue
+
+                        final_message_list.append(EmailMessageAdapted(message))
+
+                    print(f"Excluded {count} undeliverable emails")
+                    return final_message_list
             
+            print("no messages found")
             return []
 
         except Exception as e:
