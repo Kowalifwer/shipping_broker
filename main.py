@@ -189,20 +189,20 @@ async def read_emails_azure():
     # check if client is connected to Azure
 
     messages = await EmailClientAzure(azure_client).get_emails(
-        "brokers@murexsal.com",
+        "chartering@morskazvezda.si",
         top=1,
     )
-    print(messages)
+
     if isinstance(messages, str):
         return {"message": messages}
     
 
     for message in messages:
-        print(message.id)
-        print(message.subject)
-        print(message.is_read)
-        print(message.body_preview)
-        print(message.received_date_time)
+        print(message.base.id)
+        print(message.base.subject)
+        print(message.base.is_read)
+        print(message.base.body_preview)
+        print(message.base.received_date_time)
 
         output = await process_email(message)
         if output != True:
@@ -240,7 +240,6 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     )
     json_response = response.choices[0].message.content
 
-    print(json_response)
     try:
         final = json.loads(json_response)
     except Exception as e:
@@ -255,16 +254,21 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     ships = []
     cargos = []
 
+    print(entries)
+
     for entry in entries:
+        print(entry)
+
         entry_type = entry.get("type")
         if entry_type not in ["ship", "cargo"]:
             ignored_entries.append(entry)
             continue
-    
+
+        entry["email"] = email
+
         if entry_type == "ship":
             try:
-                ship = MongoShip.parse_obj(entry, validate=False)
-                ship.email = email
+                ship = MongoShip(**entry)
 
                 ships.append(ship.dict())
             except ValidationError as e:
@@ -273,8 +277,7 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
         
         elif entry_type == "cargo":
             try:
-                cargo = MongoCargo.parse_obj(entry, validate=False)
-                cargo.email = email
+                cargo = MongoCargo(**entry)
 
                 cargos.append(cargo.dict())
             except ValidationError as e:
@@ -287,10 +290,13 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     # Insert email into MongoDB
     await db["emails"].insert_one(email.dict())
 
-    # Insert ships into MongoDB
-    await db["ships"].insert_many(ships)
-    # Insert cargos into MongoDB
-    await db["cargos"].insert_many(cargos)
+    if ships:
+        # Insert ships into MongoDB
+        await db["ships"].insert_many(ships)
+
+    if cargos:
+        # Insert cargos into MongoDB
+        await db["cargos"].insert_many(cargos)
 
     return True
 

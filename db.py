@@ -1,7 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field, Extra, validator
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
-
 import re
 
 #re.compile(r"(\d+(?:,\d{3})*(?:\.\d+)?)\s*mts?\b", re.IGNORECASE) # for matching numbers with commas and decimals, followed by "mt" or "mts"
@@ -9,7 +8,18 @@ import re
 def extract_number(s: str) -> Optional[int]:
     match = re.search(r'\b(\d+(?:,\d{3})*(?:\.\d+)?)\b', s)
     if match:
+        #get last match
         return int(float(match.group(0).replace(',', '')))
+
+    return None
+
+months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+
+def extract_month(s: str) -> Optional[int]:
+    for i, month in enumerate(months, start=1):
+        if month.lower() in s.lower():
+            return i
+
     return None
 
 class MongoEmail(BaseModel):
@@ -51,7 +61,10 @@ class MongoShip(BaseModel):
     
     @validator("month_int", pre=True, always=True)
     def calculate_month_int(cls, v, values):
-        ... # TODO: implement this
+        # This method is called before validation, and it calculates month_int based on month
+
+        # If month is not specified, pass an empty string to extract_month, which will return None
+        return extract_month(values.get("month", ""))
 
     class Config:
         extra = Extra.allow
@@ -70,6 +83,7 @@ class MongoCargo(BaseModel):
     # Fields to calculate on creation (to be used for simple queries)
     quantity_int: Optional[int] # Capacity of the ship in integer form
     month_int: Optional[int] # Month when the ship is available for cargoes in integer form
+    commission_float: Optional[float] # Commission percentage in float form
 
     # Fields to fill on creation
     email: MongoEmail # Email object
@@ -87,7 +101,20 @@ class MongoCargo(BaseModel):
     
     @validator("month_int", pre=True, always=True)
     def calculate_month_int(cls, v, values):
-        ... # TODO: implement this
+        # This method is called before validation, and it calculates month_int based on month
+
+        # If month is not specified, pass an empty string to extract_month, which will return None
+        return extract_month(values.get("month", ""))
+    
+    @validator("commission_float", pre=True, always=True)
+    def calculate_commission_float(cls, v, values):
+        # commission is a string, typical e.g. "2.5%" or "3.75%"
+
+        final = None
+        match = re.search(r'\b(\d+(?:\.\d+)?)\b', values.get("commission", ""))
+        if match:
+            final = float(match.group(0))
+        return final
 
     class Config:
         extra = Extra.allow
