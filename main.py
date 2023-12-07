@@ -35,6 +35,8 @@ if isinstance(azure_client, str):
     print(azure_client)
     exit()
 
+email_client = EmailClientAzure(azure_client)
+
 # Connect to MongoDB
 db_hanlder = AsyncIOMotorClient("mongodb://localhost:27017/")
 db = db_hanlder["broker"]
@@ -188,7 +190,7 @@ async def read_emails_azure():
     
     # check if client is connected to Azure
 
-    messages = await EmailClientAzure(azure_client).get_emails(
+    messages = await email_client.get_emails(
         "chartering@morskazvezda.si",
         top=1,
     )
@@ -220,44 +222,58 @@ async def endless_cargo_ship_matcher():
     # query for all ships with no cargo pairs
     cursor = db["ships"].find({"pairs_with": []}).batch_size(100)
     async for ship in cursor:
-        matches = await match_ship_to_cargos(MongoShip.parse_obj(ship))
+        matches = await match_ship_to_cargos(MongoShip(**ship))
 
 async def process_email_dummy(email_message: EmailMessageAdapted) -> Union[bool, str]:
     print("processing email")
     await asyncio.sleep(5) # simulate the gpt api call time
     return True
 
+async def email_to_json_via_openai(email_message: EmailMessageAdapted) -> Union[str, dict]:
+    try:
+        response = await openai.ChatCompletion.acreate(
+            model="gpt-3.5-turbo-1106",
+            temperature=0.2,
+            # top_p=1,
+            response_format={ "type": "json_object" },
+            messages=[
+                {"role": "system", "content": prompt.system},
+                {"role": "user", "content": email_message.body}
+            ]
+        )
+        json_response = response.choices[0].message.content # type: ignore
+
+        final = json.loads(json_response)
+        return final
+
+    except Exception as e:
+        return f"Error in email_to_json_via_openai - {e}"
+    
+
 async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     
     #https://github.com/openai/openai-cookbook/blob/main/examples/api_request_parallel_processor.py -> parallel processing example
 
-    response = await openai.ChatCompletion.acreate(
-        model="gpt-3.5-turbo-1106",
-        temperature=0.2,
-        # top_p=1,
-        response_format={ "type": "json_object" },
-        messages=[
-            {"role": "system", "content": prompt.system},
-            {"role": "user", "content": email_message.body}
-        ]
-    )
-    json_response = response.choices[0].message.content
+    # run some checks on email, to make sure it is worthy of processing
+    # check if email is already in db
+    email_in_db = await db["emails"].find_one({"message_id": email_message.message_id})
 
-    try:
-        final = json.loads(json_response)
-    except Exception as e:
-        return "Error parsing JSON response from GPT-3"
 
-    entries = final.get("entries", [])
+    # Converting email to JSON via GPT-3.5
+    gpt_response = await email_to_json_via_openai(email_message)
+    if isinstance(gpt_response, str):
+        return gpt_response
+
+    entries = gpt_response.get("entries", [])
     if not entries:
         return "No entries returned from GPT-3"
 
-    email: MongoEmail = email_message.get_db_object()
+
+
+    email: MongoEmail = email_message.mongo_db_object
     ignored_entries = []
     ships = []
     cargos = []
-
-    print(entries)
 
     for entry in entries:
         print(entry)
@@ -350,7 +366,7 @@ async def read_emails():
 
         # for email_message in emails:
         #     # Process or display email details as needed
-        #     db_entries.append(email_message.get_db_object().dict())
+        #     db_entries.append(email_message.mongo_db_object.dict())
         
         # # Insert emails into MongoDB
         # await db["emails"].insert_many(db_entries)

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, Extra, validator
+from pydantic import BaseModel, Field, Extra, validator
 from typing import List, Optional, Dict
 from datetime import datetime
 import re
@@ -25,7 +25,7 @@ def extract_month(s: str) -> Optional[int]:
 class MongoEmail(BaseModel):
     id: Optional[str] # ID of the email(from Message-ID header)
     subject: Optional[str] # Subject of the email
-    sender: Optional[EmailStr] # Email address of the sender
+    sender: Optional[str] # Email address of the sender
     recipients: Optional[str] # List of email addresses of the recipients
     date_received: Optional[str] # Timestamp of when the email was received
     body: Optional[str] # Content of the email

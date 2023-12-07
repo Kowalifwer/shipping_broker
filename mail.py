@@ -15,24 +15,96 @@ from datetime import datetime
 import random
 from faker import Faker
 from training.dummy_emails import examples
+from functools import partial
 
-## Additional methods for EmailMessageAdapted class
+def optional_chain(obj, return_if_fails, *attrs):
+    """Returns the value of the first attribute in attrs that is not None, or {return_if_fails} if all attributes are None."""
+    for attr in attrs:
+        obj = getattr(obj, attr)
+        if obj is not None:
+            return obj
+    return return_if_fails
+
+def optional_chain_return_str(obj, *attrs):
+    """Returns the value of the first attribute in attrs that is not None, or "" if all attributes are None."""
+    return optional_chain(obj, "", *attrs)
 
 class EmailMessageAdapted:
     
     def __init__(self, base: Union[BaseEmailMessage, AzureEmailMessage]):
         if not isinstance(base, (BaseEmailMessage, AzureEmailMessage)):
             raise TypeError("base must be an instance of BaseEmailMessage or AzureEmailMessage.")
+        # Store a reference to the base object
+        self._base = base
+    
 
-        self.base = base
+    ## Start of additional methods for EmailMessageAdapted class
+    @property
+    def id(self) -> str:
+        if isinstance(self._base, AzureEmailMessage):
+            return optional_chain_return_str(self._base, "id")
+
+        elif isinstance(self._base, BaseEmailMessage):
+            return self._base["Message-ID"]
+
+        return ""
+
+
+    @property
+    def subject(self) -> str:
+        if isinstance(self._base, AzureEmailMessage):
+            return optional_chain_return_str(self._base, "subject")
+
+        elif isinstance(self._base, BaseEmailMessage):
+            return self._base["Subject"]
+        
+        return ""
+    
+    @property
+    def sender(self) -> str:
+        if isinstance(self._base, AzureEmailMessage):
+            return optional_chain_return_str(self._base, "sender", "email_address", "address")
+
+        elif isinstance(self._base, BaseEmailMessage):
+            return self._base["From"]
+        
+        return ""
+    
+    @property
+    def recipients(self) -> str:
+        if isinstance(self._base, AzureEmailMessage):
+            #First 50 recipients, from list to string
+            if self._base.to_recipients is None:
+                return ""
+
+            recipient_emails: List[str] = [recipient.email_address.address for recipient in self._base.to_recipients] # type: ignore - to_recipients is Optional
+            if recipient_emails:
+                return ",".join(recipient_emails[:50])
+
+            return ""
+
+        elif isinstance(self._base, BaseEmailMessage):
+            return self._base["To"]
+
+        return ""
+    
+    @property
+    def date_received(self) -> str:
+        if isinstance(self._base, AzureEmailMessage):
+            return str(optional_chain_return_str(self._base, "received_date_time"))
+
+        elif isinstance(self._base, BaseEmailMessage):
+            return self._base["Date"]
+
+        return ""
     
     @property
     def body(self) -> str:
-        if isinstance(self.base, AzureEmailMessage):
-            return self.base.body.content # type: ignore - body.content is str
+        if isinstance(self._base, AzureEmailMessage):
+            return optional_chain_return_str(self._base, "body", "content")
 
-        elif isinstance(self.base, BaseEmailMessage):
-            body = self.base.get_body(preferencelist=('plain', 'html'))
+        elif isinstance(self._base, BaseEmailMessage):
+            body = self._base.get_body(preferencelist=('plain', 'html'))
             if body:
                 charset = body.get_charset()
                 if charset:
@@ -45,36 +117,17 @@ class EmailMessageAdapted:
         else:
             raise TypeError("base must be an instance of BaseEmailMessage or AzureEmailMessage.")
     
-
-    def get_db_object(self) -> MongoEmail:
-        if isinstance(self.base, AzureEmailMessage):
-            #First 50 recipients, from list to string
-            recipient_emails = [recipient.email_address.address for recipient in self.base.to_recipients]
-            recipients_str = ",".join(recipient_emails[:50])
-
-            return MongoEmail(
-                id=self.base.id,
-                subject=self.base.subject,
-                sender=self.base.sender.email_address.address,
-                recipients=recipients_str,
-                date_received=str(self.base.received_date_time),
+    @property
+    def mongo_db_object(self) -> MongoEmail:
+        return MongoEmail(
+                id=self.id,
+                subject=self.subject,
+                sender=self.sender,
+                recipients=self.recipients,
+                date_received=self.date_received,
                 timestamp_processed=datetime.now(),
-                body=str(self.base.body.content)
+                body=self.body,
             )
-        
-        elif isinstance(self.base, BaseEmailMessage):
-            return MongoEmail(
-                id=self.base["Message-ID"],
-                subject=self.base["Subject"],
-                sender=self.base["From"],
-                recipients=self.base["To"],
-                date_received=self.base["Date"],
-                timestamp_processed=datetime.now(),
-                body=self.body
-            )
-
-        else:
-            raise TypeError("base must be an instance of BaseEmailMessage or AzureEmailMessage.")
 
 ## End of additional methods for EmailMessageAdapted class
 
