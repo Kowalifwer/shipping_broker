@@ -2,8 +2,12 @@ import imaplib
 import email
 from typing import List, Optional, Literal, Union
 
-from email.message import EmailMessage
+from email.message import EmailMessage as BaseEmailMessage
+from msgraph.generated.models.message import Message as AzureEmailMessage
+
+from mail_init import CustomGraphServiceClient
 from msgraph.generated.models.message import Message
+from msgraph.generated.users.item.messages.messages_request_builder import MessagesRequestBuilder
 
 from email.policy import SMTPUTF8, default
 from db import MongoEmail
@@ -11,51 +15,68 @@ from datetime import datetime
 import random
 from faker import Faker
 from training.dummy_emails import examples
-from msgraph import GraphServiceClient
 
-## Additional methods for EmailMessage class
+## Additional methods for EmailMessageAdapted class
 
-@property
-def body(self):
-    body = self.get_body(preferencelist=('plain', 'html'))
-    if body:
-        charset = body.get_charset()
-        if charset:
-            return body.get_content().decode(charset)
+class EmailMessageAdapted:
+    
+    def __init__(self, base: Union[BaseEmailMessage, AzureEmailMessage]):
+        if not isinstance(base, (BaseEmailMessage, AzureEmailMessage)):
+            raise TypeError("base must be an instance of BaseEmailMessage or AzureEmailMessage.")
+
+        self.base = base
+    
+    @property
+    def body(self) -> str:
+        if isinstance(self.base, AzureEmailMessage):
+            return self.base.body.content # type: ignore - body.content is str
+
+        elif isinstance(self.base, BaseEmailMessage):
+            body = self.base.get_body(preferencelist=('plain', 'html'))
+            if body:
+                charset = body.get_charset()
+                if charset:
+                    return body.get_content().decode(charset) # type: ignore - get_content() returns bytes, but decode() expects str
+                else:
+                    return body.get_content() # type: ignore - get_content() returns bytes, but decode() expects str
+            else:
+                return ""
+
         else:
-            return body.get_content()
-    else:
-        return ""
+            raise TypeError("base must be an instance of BaseEmailMessage or AzureEmailMessage.")
+    
 
-def get_db_object(self) -> MongoEmail:
-    return MongoEmail(
-        id=self["Message-ID"],
-        subject=self["Subject"],
-        sender=self["From"],
-        recipients=self["To"],
-        date_received=self["Date"],
-        timestamp_processed=datetime.now(),
-        body=self.body
-    )
+    def get_db_object(self) -> MongoEmail:
+        if isinstance(self.base, AzureEmailMessage):
+            #First 50 recipients, from list to string
+            recipient_emails = [recipient.email_address.address for recipient in self.base.to_recipients]
+            recipients_str = ",".join(recipient_emails[:50])
 
-def get_db_object_azure(self) -> MongoEmail:
-    #First 50 recipients
-    return MongoEmail(
-        id=self.id,
-        subject=self.subject,
-        sender=self.sender.email_address.address,
-        recipients=str(self.to_recipients[:50]),
-        date_received=str(self.recieved_date_time),
-        timestamp_processed=datetime.now(),
-        body=str(self.body)
-    )
+            return MongoEmail(
+                id=self.base.id,
+                subject=self.base.subject,
+                sender=self.base.sender.email_address.address,
+                recipients=recipients_str,
+                date_received=str(self.base.received_date_time),
+                timestamp_processed=datetime.now(),
+                body=str(self.base.body.content)
+            )
+        
+        elif isinstance(self.base, BaseEmailMessage):
+            return MongoEmail(
+                id=self.base["Message-ID"],
+                subject=self.base["Subject"],
+                sender=self.base["From"],
+                recipients=self.base["To"],
+                date_received=self.base["Date"],
+                timestamp_processed=datetime.now(),
+                body=self.body
+            )
 
-EmailMessage.body = body # type: ignore - attaching a property to an existing class
-EmailMessage.get_db_object = get_db_object # type: ignore - adding a method to an existing class
+        else:
+            raise TypeError("base must be an instance of BaseEmailMessage or AzureEmailMessage.")
 
-Message.get_db_object = get_db_object_azure # type: ignore - adding a method to an existing class
-
-## End of additional methods for EmailMessage class
+## End of additional methods for EmailMessageAdapted class
 
 class EmailClientSMTP:
     """
@@ -105,7 +126,7 @@ class EmailClientSMTP:
         if self.imap_connection:
             self.imap_connection.logout()
 
-    async def read_emails(self, search_criteria: Literal["UNSEEN", "ALL"] = "UNSEEN", num_emails: int = 10, search_keyword: str = "") -> Union[List[EmailMessage], str]:
+    async def read_emails(self, search_criteria: Literal["UNSEEN", "ALL"] = "UNSEEN", num_emails: int = 10, search_keyword: str = "") -> Union[List[EmailMessageAdapted], str]:
         """
         Reads email messages from the mailbox.
 
@@ -114,7 +135,7 @@ class EmailClientSMTP:
             num_emails (int, optional): The maximum number of emails to retrieve. Default is 10.
 
         Returns:
-            List[EmailMessage]: A list of email message objects.
+            List[EmailMessageAdapted]: A list of email message objects.
         """
         if not self.imap_connection:
             return "Error: Not connected to the IMAP server"
@@ -128,7 +149,7 @@ class EmailClientSMTP:
             status, email_ids = self.imap_connection.search(None, search_str)
             email_id_list = email_ids[0].split()
             num_emails_to_fetch = min(num_emails, len(email_id_list))
-            email_messages: List[EmailMessage] = []
+            email_messages: List[EmailMessageAdapted] = []
             
             for i in range(-1, -1*num_emails_to_fetch-1, -1): # Fetch emails in reverse order
                 status, email_data = self.imap_connection.fetch(email_id_list[i], "(RFC822)")
@@ -136,44 +157,35 @@ class EmailClientSMTP:
                 email_data = email_data[0]
                 if isinstance(email_data, tuple):
                     raw_email = email_data[1]
-                    email_message = email.message_from_bytes(raw_email, _class=EmailMessage, policy=SMTPUTF8)
-                    email_messages.append(email_message) # type: ignore - we specified the _class argument to EmailMessage
-
+                    email_message = email.message_from_bytes(raw_email, _class=BaseEmailMessage, policy=SMTPUTF8)
+                    email_messages.append(EmailMessageAdapted(email_message)) # type: ignore - we specified the _class argument to EmailMessageAdapted
 
             return email_messages
 
         except Exception as e:
             return f"Error: Could not read emails - {e}"
     
-    async def read_emails_dummy(self, *args, **kwargs):
+    async def read_emails_dummy(self, *args, **kwargs) -> List[EmailMessageAdapted]:
         #return list with 0-10 dummy random emails
         fake = Faker()
-        email_messages = []
+        email_messages: List[EmailMessageAdapted] = []
         for _ in range(random.randint(0,10)):
-            email_message = EmailMessage()
+            email_message = BaseEmailMessage()
             email_message["Subject"] = fake.sentence()
             email_message["From"] = fake.email()
             email_message["To"] = fake.email()
             email_message["Date"] = fake.date_time()
             email_message.set_content(random.choice(examples)) #randomly choose one of the dummy emails
-            email_messages.append(email_message)
-        
-        return email_messages
+            email_messages.append(EmailMessageAdapted(email_message))
 
-from mail_init import CustomGraphServiceClient
-from typing import Union, List
-from msgraph.generated.models.message import Message
-from msgraph.generated.users.item.messages.messages_request_builder import MessagesRequestBuilder
+        return email_messages
 
 class EmailClientAzure:
     """
     A class that encapsulates email-related operations using the Microsoft Graph SDK.
 
     Args:
-        client (GraphServiceClient): An instance of the Microsoft Graph Service Client.
-
-    Attributes:
-        client (GraphServiceClient): An instance of the Microsoft Graph Service Client.
+        client (CustomGraphServiceClient): An instance of the Microsoft Graph Service Client.
     """
 
     def __init__(self, client: CustomGraphServiceClient) -> None:
@@ -181,7 +193,7 @@ class EmailClientAzure:
         Initializes the EmailService with the Microsoft Graph client.
 
         Args:
-            client (GraphServiceClient): An instance of the Microsoft Graph Service Client.
+            client (CustomGraphServiceClient): An instance of the Microsoft Graph Service Client.
         """
         self.client = client
 
@@ -229,7 +241,7 @@ class EmailClientAzure:
         except Exception as e:
             return str(e)
     
-    async def get_emails(self, sender_email: Optional[str], search: Optional[str] = None, top: Optional[int] = 5, unseen_only: bool = True) -> Union[List[Message], str]:
+    async def get_emails(self, sender_email: Optional[str], search: Optional[str] = None, top: Optional[int] = 5, unseen_only: bool = True) -> Union[List[EmailMessageAdapted], str]:
         """
         Retrieves a list of email messages from the user's mailbox.
 
@@ -269,7 +281,9 @@ class EmailClientAzure:
             messages = await self.client.me.messages.get(config)
             if messages:
                 message_list = messages.value
-                return message_list if message_list else []
+                return [EmailMessageAdapted(message) for message in message_list] if message_list else []
+            
+            return []
 
         except Exception as e:
             return str(e)

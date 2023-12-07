@@ -3,7 +3,6 @@ from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from mail import EmailClientSMTP, EmailClientAzure
 import asyncio
 import configparser
-import imaplib
 from typing import Any, List, Optional, Union
 from datetime import datetime
 from db import MongoEmail, MongoShip, MongoCargo
@@ -11,10 +10,10 @@ from pydantic import ValidationError
 from gpt_prompts import prompt
 import json
 from motor.motor_asyncio import AsyncIOMotorClient
-from email.message import EmailMessage
+
+from mail import EmailMessageAdapted
+
 import openai
-import msal
-import requests
 import mail_init
 
 app = FastAPI()
@@ -193,6 +192,7 @@ async def read_emails_azure():
         "brokers@murexsal.com",
         top=1,
     )
+    print(messages)
     if isinstance(messages, str):
         return {"message": messages}
     
@@ -202,9 +202,13 @@ async def read_emails_azure():
         print(message.subject)
         print(message.is_read)
         print(message.body_preview)
-        
-        message.received_date_time
-    
+        print(message.received_date_time)
+
+        output = await process_email(message)
+        if output != True:
+            return {"message": output}
+
+
     return {"message": messages}
 
 async def endless_cargo_ship_matcher():
@@ -218,12 +222,12 @@ async def endless_cargo_ship_matcher():
     async for ship in cursor:
         matches = await match_ship_to_cargos(MongoShip.parse_obj(ship))
 
-async def process_email_dummy(email_message: EmailMessage) -> Union[True, str]:
+async def process_email_dummy(email_message: EmailMessageAdapted) -> Union[bool, str]:
     print("processing email")
     await asyncio.sleep(5) # simulate the gpt api call time
     return True
 
-async def process_email(email_message: EmailMessage) -> Union[True, str]:
+async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     response = await openai.ChatCompletion.acreate(
         model="gpt-3.5-turbo-1106",
         temperature=0.2,
@@ -236,6 +240,7 @@ async def process_email(email_message: EmailMessage) -> Union[True, str]:
     )
     json_response = response.choices[0].message.content
 
+    print(json_response)
     try:
         final = json.loads(json_response)
     except Exception as e:
@@ -245,7 +250,7 @@ async def process_email(email_message: EmailMessage) -> Union[True, str]:
     if not entries:
         return "No entries returned from GPT-3"
 
-    email: MongoEmail = email_message.get_db_object() # type: ignore - method is assigned to EmailMessage class, inside mail.py
+    email: MongoEmail = email_message.get_db_object()
     ignored_entries = []
     ships = []
     cargos = []
