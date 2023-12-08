@@ -9,6 +9,9 @@ from azure.core.credentials_async import AsyncTokenCredential
 from azure.core.credentials import AccessToken
 from typing import Any, Union, List, Optional
 from msgraph import GraphServiceClient
+import httpx
+
+BATCH_REQUEST_LIMIT = 20
 
 class TokenAdaptor(AsyncTokenCredential):
     
@@ -39,6 +42,11 @@ class CustomGraphServiceClient(GraphServiceClient):
         )
     
     @property
+    def base_url(self) -> str:
+        """Returns the base URL of the Graph API, e.g. https://graph.microsoft.com/v1.0"""
+        return "https://graph.microsoft.com/v1.0"
+    
+    @property
     def me(self):
         """Overrides the existing me property, to reroute to self.users.by_user_id if user_id is provided."""
         if self.user_id:
@@ -46,6 +54,15 @@ class CustomGraphServiceClient(GraphServiceClient):
 
         return super().me
     
+    @property
+    def me_url_with_base(self):
+        """Returns the base URL of the Graph API with the access point, e.g. https://graph.microsoft.com/v1.0/me or https://graph.microsoft.com/v1.0/users/{{user-id}}"""
+        base_url = self.base_url
+        if self.user_id:
+            return f"{base_url}/users/{self.user_id}"
+
+        return f"{base_url}/me"
+
     @property
     def me_url_without_base(self):
         """Returns the access point AFTER the base URL.
@@ -56,14 +73,106 @@ class CustomGraphServiceClient(GraphServiceClient):
 
         return "/me"
     
-    @property
-    def base_url(self):
-        """Returns the base URL of the Graph API with the access point, e.g. https://graph.microsoft.com/v1.0/me or https://graph.microsoft.com/v1.0/users/{{user-id}}"""
-        base_url = self.path_parameters.get("base_url")
-        if self.user_id:
-            return f"{base_url}/users/{self.user_id}"
+    async def post_batch_request(self, batch_requests: List[dict]) -> dict:
+        """
+        Sends a batch request to the Graph API. Returns the response if successful, dict with status code and error message if not.
+        This function will automatically split the batch request into multiple sub-batches if the number of requests exceeds the Azure limit.
+        
+        args:
+            batch_requests: a list of dicts, each dict representing a request to be included in the batch.
+        """
 
-        return base_url
+        batches = [batch_requests[i:i + BATCH_REQUEST_LIMIT] for i in range(0, len(batch_requests), BATCH_REQUEST_LIMIT)]
+
+        for batch in batches:
+            batch_response = await self._post_batch_request(batch)
+            if batch_response["status"] != 200:
+                return batch_response
+
+            print(f"Batch completed")
+
+        return {"status": 200, "body": "Batch request completed."}
+    
+    async def _post_batch_request(self, batch_requests: List[dict]) -> dict:
+        """A helper function for post_batch_request, which sends a single batch request of up to BATCH_REQUEST_LIMIT requests."""
+
+        # Send the batch request (async, since it might take some time)
+        async with httpx.AsyncClient() as client:
+            batch_response = await client.post(
+                url=f"{self.base_url}/$batch",
+                json={"requests": batch_requests},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.access_token_str}",
+                },
+            )
+
+            # Check if the batch request was successful
+            if batch_response.status_code != 200:
+                print(f"Error: Could not update emails to read - {batch_response.text}")
+                return {"status": batch_response.status_code, "body": batch_response.text}
+            
+            return batch_response.json()
+    
+    async def set_emails_to_read(self, email_ids: List[str]) -> bool:
+        #split email ids into batches based on BATCH_REQUEST_LIMIT
+        batches = [email_ids[i:i + BATCH_REQUEST_LIMIT] for i in range(0, len(email_ids), BATCH_REQUEST_LIMIT)]
+
+        print(f"Will set {len(email_ids)} emails to read in {len(batches)} batches")
+        for batch in batches:
+            status = await self._set_emails_to_read(batch)
+            if not status:
+                return False
+            print(f"Batch completed")
+
+        return True
+    
+    async def _set_emails_to_read(self, email_ids: List[str]) -> bool:
+
+        batch_requests = []
+
+        for i, email_id in enumerate(email_ids, start=1):
+
+            # Construct the URL for the specific email
+            request_url = f"{self.client.me_url_without_base}/messages/{email_id}"
+
+            # Construct the request body to update the 'isRead' property
+            request_body = {
+                "isRead": "true"
+            }
+
+            # Add the PATCH request to the batch
+            batch_requests.append({
+                "method": "PATCH",
+                "url": request_url,
+                "id": i,
+                "headers": {
+                    "Content-Type": "application/json",
+                },
+                "body": request_body,
+            })
+
+        # Send the batch request (async, since it might take some time)
+        async with httpx.AsyncClient() as client:
+            batch_response = await client.post(
+                url="https://graph.microsoft.com/v1.0/$batch",
+                json={"requests": batch_requests},
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.client.access_token_str}",
+                },
+            )
+
+            # Check if the batch request was successful
+            if batch_response.status_code != 200:
+                print(f"Error: Could not update emails to read - {batch_response.text}")
+                return False
+            
+            for response in batch_response.json()["responses"]:
+                if response["status"] != 200:
+                    print(f"Error: Could not update email {response['id']} to read - {response['body']['error']['message']}")
+
+        return True
 
 
 def connect_to_azure(azure_conf) -> Union[CustomGraphServiceClient, str]:

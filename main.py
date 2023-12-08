@@ -152,38 +152,54 @@ async def match_ship_to_cargos(ship: MongoShip):
     #query all cargos, first in a quantity_int +- 20% range
     
     quantity_int = ship.capacity_int
-    percent_difference = 0.2
-    min_quantity_int = int(quantity_int * (1 - percent_difference))
-    max_quantity_int = int(quantity_int * (1 + percent_difference))
+    if quantity_int:
+        percent_difference = 0.2
+        min_quantity_int = int(quantity_int * (1 - percent_difference))
+        max_quantity_int = int(quantity_int * (1 + percent_difference))
 
-    cargos_by_quantity = await db["cargos"].find({
-        "quantity_int": {
-            "$gte": min_quantity_int,
-            "$lte": max_quantity_int
-        }
-    }).to_list()
+        cargos_by_quantity = await db["cargos"].find({
+            "quantity_int": {
+                "$gte": min_quantity_int,
+                "$lte": max_quantity_int
+            }
+        }).to_list(100)
 
-    print(f"Found {len(cargos_by_quantity)} cargos for ship {ship.name}, in quantity range {min_quantity_int} - {max_quantity_int}")
-
+        print(f"Found {len(cargos_by_quantity)} cargos for ship {ship.name}, in quantity range {min_quantity_int} - {max_quantity_int}")
+    
     #query all cargos where sea_from or sea_to, matches the ships sea
-    cargos_by_sea = await db["cargos"].find({
-        "$or": [
-            {"sea_from": ship.sea},
-            {"sea_to": ship.sea}
-        ]
-    }).to_list()
+    if ship.sea:
+        cargos_by_sea = await db["cargos"].find({
+            "$or": [
+                {"sea_from": ship.sea},
+                {"sea_to": ship.sea}
+            ]
+        }).to_list(100)
 
-    print(f"Found {len(cargos_by_sea)} cargos for ship {ship.name}, in sea {ship.sea}")
+        print(f"Found {len(cargos_by_sea)} cargos for ship {ship.name}, in sea {ship.sea}")
 
     #query all cargos where port_from or port_to, matches the ships port
-    cargos_by_port = await db["cargos"].find({
-        "$or": [
-            {"port_from": ship.port},
-            {"port_to": ship.port}
-        ]
-    }).to_list()
+    if ship.port:
+        cargos_by_port = await db["cargos"].find({
+            "$or": [
+                {"port_from": ship.port},
+                {"port_to": ship.port}
+            ]
+        }).to_list(100)
 
-    print(f"Found {len(cargos_by_port)} cargos for ship {ship.name}, in port {ship.port}")
+        print(f"Found {len(cargos_by_port)} cargos for ship {ship.name}, in port {ship.port}")
+    
+    #query all cargos where month matches the ships month, with a +- 1 month range
+    if ship.month_int:
+        cargos_by_month = await db["cargos"].find({
+            "month_int": {
+                "$gte": ship.month_int - 1,
+                "$lte": ship.month_int + 1
+            }
+        }).to_list(100)
+
+        print(f"Found {len(cargos_by_month)} cargos for ship {ship.name}, in month range {ship.month_int - 1} - {ship.month_int + 1}")
+    
+
 
 async def endless_cargo_ship_matcher():
     # 1. Endless query for all ships with no cargo pairs
@@ -250,7 +266,7 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     #https://github.com/openai/openai-cookbook/blob/main/examples/api_request_parallel_processor.py -> parallel processing example
 
     # run some checks on email, to make sure it is worthy of processing
-    # check if email is already in db
+    # check if email is already in db. check for exact match in email.id field OR check if
     email_in_db = await db["emails"].find_one({"id": email_message.id})
     if email_in_db:
         print("Email already in database. ignoring")

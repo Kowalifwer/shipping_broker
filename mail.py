@@ -16,14 +16,11 @@ import random
 from faker import Faker
 from training.dummy_emails import examples
 import requests
-import httpx
-
-BATCH_REQUEST_LIMIT = 20
 
 def subject_reveals_email_is_failed(text: str) -> bool:
     """Returns True if the subject reveals that the email is an undeliverable email, False otherwise."""
 
-    word_list = ["undeliverable", "not read", "rejected", "failure", "spam", "rejected"] # maybe notification? 
+    word_list = ["undeliverable", "not read", "rejected", "failure", "spam"] # maybe notification? 
     
     lowercase_text = text.lower()
     for word in word_list:
@@ -318,73 +315,35 @@ class EmailClientAzure:
             folders = self.client.me.mail_folders.get()
             return folders
         except Exception as e:
-            return str(e)
-    
+            return str(e)    
 
     async def set_emails_to_read(self, email_ids: List[str]) -> bool:
-        #split email ids into batches based on BATCH_REQUEST_LIMIT
-        batches = [email_ids[i:i + BATCH_REQUEST_LIMIT] for i in range(0, len(email_ids), BATCH_REQUEST_LIMIT)]
-
-        print(f"Will set {len(email_ids)} emails to read in {len(batches)} batches")
-        for batch in batches:
-            status = await self._set_emails_to_read(batch)
-            if not status:
-                return False
-            print(f"Batch completed")
-
-        return True
-
-    async def _set_emails_to_read(self, email_ids: List[str]) -> bool:
 
         batch_requests = []
 
         for i, email_id in enumerate(email_ids, start=1):
 
-            # Construct the URL for the specific email
-            request_url = f"{self.client.me_url_without_base}/messages/{email_id}"
-
-            # Construct the request body to update the 'isRead' property
-            request_body = {
-                "isRead": "true"
-            }
-
             # Add the PATCH request to the batch
             batch_requests.append({
                 "method": "PATCH",
-                "url": request_url,
                 "id": i,
+                "url": f"{self.client.me_url_without_base}/messages/{email_id}",  # Construct the URL for the specific email
                 "headers": {
                     "Content-Type": "application/json",
                 },
-                "body": request_body,
+                "body": {
+                    "isRead": "true"  # Sets the email to read
+                },
             })
 
-        # Send the batch request (async, since it might take some time)
-        async with httpx.AsyncClient() as client:
-            batch_response = await client.post(
-                url="https://graph.microsoft.com/v1.0/$batch",
-                json={"requests": batch_requests},
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.client.access_token_str}",
-                },
-            )
-
-            # Check if the batch request was successful
-            if batch_response.status_code != 200:
-                print(f"Error: Could not update emails to read - {batch_response.text}")
-                return False
-            
-            for response in batch_response.json()["responses"]:
-                if response["status"] != 200:
-                    print(f"Error: Could not update email {response['id']} to read - {response['body']['error']['message']}")
+        await self.client.post_batch_request(batch_requests)
 
         return True
     
     # Note: cannot sort by date recieved AND filter by name. Only one or the other.
     async def get_emails(self, 
         # Below are the parameters for the api call
-        sender_email: Optional[str] = None,
+        # sender_email: Optional[str] = None,
         search: Optional[str] = None,
         top: Optional[int] = 5,
         unseen_only: bool = True,
@@ -398,10 +357,15 @@ class EmailClientAzure:
         Retrieves a list of email messages from the user's mailbox.
 
         Args:
-            sender_email (str, optional): The email address of the sender. Defaults to None.
+            search (str, optional): The search criteria for emails.
+            top (int, optional): The maximum number of emails to retrieve. Default is 5.
+            unseen_only (bool, optional): Whether to retrieve only unseen emails. Default is True.
+            most_recent_first (bool, optional): Whether to sort the emails by most recent first. Default is True.
+
+
 
         Returns:
-            list: A list of email messages.
+            list: A list of EmailMessageAdapted objects, that can be used throughout the application.
 
         Raises:
             Exception: If an error occurs during the operation.
@@ -441,7 +405,7 @@ class EmailClientAzure:
                     "Prefer": "outlook.body-content-type=\"text\"",
                 },
             )
-            
+
             messages = await self.client.me.messages.get(config)
             if messages:
                 message_list = messages.value
