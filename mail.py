@@ -21,7 +21,7 @@ import asyncio
 def subject_reveals_email_is_failed(text: str) -> bool:
     """Returns True if the subject reveals that the email is an undeliverable email, False otherwise."""
 
-    word_list = ["undeliverable", "not read", "rejected", "failure", "spam"] # maybe notification? 
+    word_list = ["undeliverable", "not read", "rejected", "failure", "spam", "couldn't be delivered"] # maybe notification? 
     
     lowercase_text = text.lower()
     for word in word_list:
@@ -358,14 +358,18 @@ class EmailClientAzure:
 
         return True
     
+    async def read_emails_and_delete_spam(self, n:int, most_recent_first: bool = True):
+        return await self.get_emails(top=n, unseen_only=False, remove_undelivered=True, set_to_read=False)
+
     # Note: cannot sort by date recieved AND filter by name. Only one or the other.
     async def get_emails(self, 
         # Below are the parameters for the api call
         # sender_email: Optional[str] = None,
-        search: Optional[str] = None,
         top: Optional[int] = 5,
         unseen_only: bool = True,
         most_recent_first: bool = True,
+
+        folders: Optional[List[str]] = [], # List of folders to search in. If empty, search in all folders.
 
         # Below are the parameters for post-processing
         remove_undelivered: bool = True,
@@ -373,6 +377,8 @@ class EmailClientAzure:
     ) -> Union[List[EmailMessageAdapted], str]:
         """
         Retrieves a list of email messages from the user's mailbox.
+
+        IF remove_undelivered is True, then those emails will be deleted and not included in the return list.
 
         Args:
             search (str, optional): The search criteria for emails.
@@ -407,15 +413,23 @@ class EmailClientAzure:
             #     # check if subject contains 'Undeliverable:'
             #     query_params["filter"] += 'not startswith(subject, \'Undeliverable:\')'
 
+            # Using filter and orderby in the same query
+            # When using $filter and $orderby in the same query to get messages, make sure to specify properties in the following ways:
+
+            # Properties that appear in $orderby must also appear in $filter.
+            # Properties that appear in $orderby are in the same order as in $filter.
+            # Properties that are present in $orderby appear in $filter before any properties that aren't.
+            # Failing to do this results in the following error:
+
+            # Error code: InefficientFilter
+            # Error message: The restriction or sort order is too complex for this operation.
+
             if most_recent_first:
                 query_params["orderby"] = ['receivedDateTime desc']
 
             # Take care if chaining filters in the future!
             if unseen_only:
                 query_params["filter"] = 'isRead eq false'
-
-            if search:
-                query_params["search"] = search
 
             config = MessagesRequestBuilder.MessagesRequestBuilderGetRequestConfiguration(
                 query_parameters = MessagesRequestBuilder.MessagesRequestBuilderGetQueryParameters(**query_params),

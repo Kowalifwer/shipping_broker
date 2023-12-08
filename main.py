@@ -241,8 +241,9 @@ async def email_to_json_via_openai(email_message: EmailMessageAdapted) -> Union[
 async def read_emails_azure():
     
     messages = await email_client.get_emails(
-        top=200,
-        most_recent_first=True,
+        top=1,
+        most_recent_first=False,
+        unseen_only=False
     )
 
     if isinstance(messages, str):
@@ -250,7 +251,7 @@ async def read_emails_azure():
     
 
     for i, message in enumerate(messages, start=1):
-        print(f"msg {i}: {message.date_received}")
+        print(f"msg {i}: {message.date_received}, subject: {message.subject}")
 
         output = await process_email(message)
         if output != True:
@@ -259,11 +260,27 @@ async def read_emails_azure():
 
     return {"message": messages}
 
+# Test view
 @app.get("/delete_spam_emails_azure")
 async def delete_spam_emails_azure():
-    ...
+    remaining_emails = await email_client.read_emails_and_delete_spam(50)
+    if isinstance(remaining_emails, str):
+        return {"error": remaining_emails}
+    
+    for email in remaining_emails:
+        print(f"Remaining email: {email.date_received}, subject: {email.subject}")
 
+# Test view
+@app.get("/list_mail_folders")
+async def list_mail_folders():
+    # https://learn.microsoft.com/en-us/graph/api/resources/mailfolder?view=graph-rest-1.0 for all mail folder access shortcuts
+    folders = await email_client.client.me.mail_folders.get()
+    for folder in folders.value:
+        messages = await email_client.client.me.mail_folders.by_mail_folder_id(folder.id).messages.get()
+        print(f"{folder.display_name} has {len(messages.value)} messages")
+        
 
+    return {"message": folders}
 
 async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     
