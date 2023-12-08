@@ -240,11 +240,9 @@ async def email_to_json_via_openai(email_message: EmailMessageAdapted) -> Union[
 @app.get("/read_emails_azure")
 async def read_emails_azure():
     
-    # check if client is connected to Azure
-
     messages = await email_client.get_emails(
-        top=100,
-        most_recent_first=True
+        top=200,
+        most_recent_first=True,
     )
 
     if isinstance(messages, str):
@@ -260,6 +258,12 @@ async def read_emails_azure():
 
 
     return {"message": messages}
+
+@app.get("/delete_spam_emails_azure")
+async def delete_spam_emails_azure():
+    ...
+
+
 
 async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     

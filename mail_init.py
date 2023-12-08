@@ -82,14 +82,20 @@ class CustomGraphServiceClient(GraphServiceClient):
             batch_requests: a list of dicts, each dict representing a request to be included in the batch.
         """
 
+        operation_name = ""
         batches = [batch_requests[i:i + BATCH_REQUEST_LIMIT] for i in range(0, len(batch_requests), BATCH_REQUEST_LIMIT)]
+        if batches:
+            if batches[0]:
+                operation_name = batches[0][0]["method"]
+                print(f"Will attemtpt to send {len(batches)} batches of batch requests. Method: {batches[0][0]['method']}")
 
-        for batch in batches:
+        for i, batch in enumerate(batches, start=1):
+            print(f"Sending sub-batch request {i}/{len(batches)} with {len(batch)} requests.")
             batch_response = await self._post_batch_request(batch)
             if batch_response["status"] != 200:
                 return batch_response
-
-            print(f"Batch completed")
+        
+        print(f"Batch operation ({operation_name}) completed successfully.")
 
         return {"status": 200, "body": "Batch request completed."}
     
@@ -109,10 +115,10 @@ class CustomGraphServiceClient(GraphServiceClient):
 
             # Check if the batch request was successful
             if batch_response.status_code != 200:
-                print(f"Error: Could not update emails to read - {batch_response.text}")
+                print(f"Error: Batch request failed - {batch_response.text}")
                 return {"status": batch_response.status_code, "body": batch_response.text}
             
-            return batch_response.json()
+            return {"status": batch_response.status_code, "body": batch_response.json()}
     
     async def set_emails_to_read(self, email_ids: List[str]) -> bool:
         #split email ids into batches based on BATCH_REQUEST_LIMIT

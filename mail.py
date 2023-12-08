@@ -16,6 +16,7 @@ import random
 from faker import Faker
 from training.dummy_emails import examples
 import requests
+import asyncio
 
 def subject_reveals_email_is_failed(text: str) -> bool:
     """Returns True if the subject reveals that the email is an undeliverable email, False otherwise."""
@@ -321,7 +322,7 @@ class EmailClientAzure:
 
         batch_requests = []
 
-        for i, email_id in enumerate(email_ids, start=1):
+        for i, email_id in enumerate(email_ids):
 
             # Add the PATCH request to the batch
             batch_requests.append({
@@ -339,6 +340,23 @@ class EmailClientAzure:
         await self.client.post_batch_request(batch_requests)
 
         return True
+
+    async def delete_emails(self, email_ids: List[str]) -> bool:
+
+        batch_requests = []
+
+        for i, email_id in enumerate(email_ids):
+
+            # Add the DELETE request to the batch
+            batch_requests.append({
+                "method": "DELETE",
+                "id": i,
+                "url": f"{self.client.me_url_without_base}/messages/{email_id}",  # Construct the URL for the specific email
+            })
+
+        await self.client.post_batch_request(batch_requests)
+
+        return True
     
     # Note: cannot sort by date recieved AND filter by name. Only one or the other.
     async def get_emails(self, 
@@ -350,7 +368,7 @@ class EmailClientAzure:
         most_recent_first: bool = True,
 
         # Below are the parameters for post-processing
-        exclude_undelivered: bool = True,
+        remove_undelivered: bool = True,
         set_to_read: bool = True,
     ) -> Union[List[EmailMessageAdapted], str]:
         """
@@ -382,7 +400,7 @@ class EmailClientAzure:
             # if sender_email:
             #     query_params["filter"] = f'from/emailAddress/address eq \'{sender_email}\''
 
-            # if exclude_undelivered:
+            # if remove_undelivered:
             #     if query_params["filter"]:
             #         query_params["filter"] += ' and '
 
@@ -411,27 +429,42 @@ class EmailClientAzure:
                 message_list = messages.value
                 if message_list is not None:
 
-                    # Sets emails to READ
-                    if set_to_read:
-                        time = datetime.now()
-                        status = await self.set_emails_to_read([str(message.id) for message in message_list])  #  Consider fire and forget so the function does not need to wait to return the list of messages
-                        print(f"Set emails to read in {datetime.now() - time} seconds")
-
-                    # Assembles the list of messages to return
+                    # To assemble the final list of messages
                     final_message_list: List[EmailMessageAdapted] = []
-                    count = 0
+
+                    # To store id's of emails to delete and mark as read
+                    to_delete, to_mark_as_read = [], []
+
                     for message in message_list:
                         
                         # Handles the case of frequent exchange underliverable emails.
-                        if exclude_undelivered:
+                        if remove_undelivered:
                             if message.subject:
+                                # Delete message if subject reveals it is an undeliverable email OR mark as read otherwise
                                 if subject_reveals_email_is_failed(message.subject):
-                                    count += 1
-                                    continue
+                                    to_delete.append(message.id)
+                                else:
+                                    final_message_list.append(EmailMessageAdapted(message))
+                                    if set_to_read:
+                                        to_mark_as_read.append(message.id)
 
-                        final_message_list.append(EmailMessageAdapted(message))
+                        else:
+                            final_message_list.append(EmailMessageAdapted(message))
+                            if set_to_read:
+                                to_mark_as_read.append(message.id)
 
-                    print(f"Excluded {count} undeliverable emails")
+                    if remove_undelivered:
+                        print(f"Excluded and deleted {len(to_delete)} undeliverable emails")
+                    
+                    print(f"Returning a total of {len(final_message_list)}/{len(message_list)} emails that were fetched from the server.")
+
+
+                    # Launch a background task to delete and mark emails as read, if necessary
+                    if set_to_read:
+                        asyncio.create_task(self.set_emails_to_read(to_mark_as_read))
+                    if remove_undelivered:
+                        asyncio.create_task(self.delete_emails(to_delete))
+
                     return final_message_list
             
             print("no messages found")
