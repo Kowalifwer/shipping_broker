@@ -275,7 +275,7 @@ async def read_emails_azure():
 @app.get("/delete_spam_emails_azure")
 async def delete_spam_emails_azure():
     start_time = datetime.now()
-    remaining_emails = await email_client.read_emails_and_delete_spam(500, unseen_only=True)
+    remaining_emails = await email_client.read_emails_and_delete_spam(100, unseen_only=False)
     print(f"Time taken to fetch emails and create objects, whilst launching background tasks: {datetime.now() - start_time}")
 
     if isinstance(remaining_emails, str):
@@ -286,7 +286,6 @@ async def delete_spam_emails_azure():
 # Test view
 @app.get("/list_mail_folders")
 async def list_mail_folders():
-    # https://learn.microsoft.com/en-us/graph/api/resources/mailfolder?view=graph-rest-1.0 for all mail folder access shortcuts
     folders = await email_client.client.me.mail_folders.get()
     for folder in folders.value:
         messages = await email_client.client.me.mail_folders.by_mail_folder_id(folder.id).messages.get()
@@ -310,7 +309,7 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     })
 
     if email_in_db:
-        #check if 
+        # TODO: consider updating the fields on the duplicate object, such as date_recieved or store a counter of duplicates, if this into will be useful later.
         print("Email already in database. ignoring")
         return True
 

@@ -21,8 +21,8 @@ import asyncio
 def subject_reveals_email_is_failed(text: str) -> bool:
     """Returns True if the subject reveals that the email is an undeliverable email, False otherwise."""
 
-    word_list = ["undeliverable", "not read", "rejected", "failure", "spam", "couldn't be delivered"] # maybe notification? 
-    
+    word_list = ["undeliver", "not read", "rejected", "failure", "couldn't be delivered"] # maybe notification? 
+
     lowercase_text = text.lower()
     for word in word_list:
         if word in lowercase_text:
@@ -369,7 +369,7 @@ class EmailClientAzure:
         unseen_only: bool = True,
         most_recent_first: bool = True,
 
-        folders: Optional[List[str]] = [], # List of folders to search in. If empty, search in all folders.
+        folders: List[str] = ["inbox", "junkemail"], # List of folders to search in. For all shortcuts: # https://learn.microsoft.com/en-us/graph/api/resources/mailfolder?view=graph-rest-1.0 for all mail folder access shortcuts
 
         # Below are the parameters for post-processing
         remove_undelivered: bool = True,
@@ -381,12 +381,13 @@ class EmailClientAzure:
         IF remove_undelivered is True, then those emails will be deleted and not included in the return list.
 
         Args:
-            search (str, optional): The search criteria for emails.
-            n (int, optional): The maximum number of emails to retrieve. Default is 5.
-            unseen_only (bool, optional): Whether to retrieve only unseen emails. Default is True.
-            most_recent_first (bool, optional): Whether to sort the emails by most recent first. Default is True.
+            n: The maximum number of emails to retrieve. Default is 5. Note that the actual number of emails returned may be less than n, depending on the number of emails in the mailbox AND other settings.
+            unseen_only: If True, only unseen/unread emails will be retrieved. Default is True.
+            most_recent_first: If True, the most recent emails will be retrieved first. set to False for oldest first. Default is True.
+            folders: A list of folders to be searched in. Default is ["inbox", "junkemail"].
 
-
+            remove_undelivered: If True, emails with subject that reveals they are undeliverable, will be deleted. Default is True. Look at subject_reveals_email_is_failed() for the list of keywords that are used to detect undeliverable emails.
+            set_to_read: If True, emails will be marked as read during post-processing. Default is True.
 
         Returns:
             list: A list of EmailMessageAdapted objects, that can be used throughout the application.
@@ -400,9 +401,15 @@ class EmailClientAzure:
         try:
             MAX_MSG_PER_REQUEST = 50
 
+            folder_filters = [f"parentFolderId eq '{folder_name}'" for folder_name in folders]
+            folder_filter_string = " or ".join(folder_filters)
+
+            print(folder_filter_string)
+
             query_params = {
                 "top": min(n, MAX_MSG_PER_REQUEST),  # The maximum number of messages to return
                 "select": ['id', 'subject', 'sender', 'toRecipients', 'receivedDateTime', 'uniqueBody', 'isRead'],  # uniqueBody is the body of the email without any reply/forward history
+                "filter": folder_filter_string,
             }
 
             # if sender_email:
@@ -433,7 +440,7 @@ class EmailClientAzure:
 
             # Take care if chaining filters in the future!
             if unseen_only:
-                query_params["filter"] = 'isRead eq false'
+                query_params["filter"] += ' and isRead eq false'
 
             config = MessagesRequestBuilder.MessagesRequestBuilderGetRequestConfiguration(
                 query_parameters = MessagesRequestBuilder.MessagesRequestBuilderGetQueryParameters(**query_params),
