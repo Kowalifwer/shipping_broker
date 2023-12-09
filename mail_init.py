@@ -2,7 +2,6 @@ from requests_oauthlib import OAuth2Session
 from oauthlib.oauth2 import BackendApplicationClient
 from requests.auth import HTTPBasicAuth
 import requests
-import msal
 from msgraph import GraphServiceClient
 from azure.mail import EmailService
 from azure.core.credentials_async import AsyncTokenCredential
@@ -81,7 +80,7 @@ class CustomGraphServiceClient(GraphServiceClient):
         args:
             batch_requests: a list of dicts, each dict representing a request to be included in the batch.
         """
-
+        total = 0
         operation_name = ""
         batches = [batch_requests[i:i + BATCH_REQUEST_LIMIT] for i in range(0, len(batch_requests), BATCH_REQUEST_LIMIT)]
         if batches:
@@ -90,12 +89,13 @@ class CustomGraphServiceClient(GraphServiceClient):
                 print(f"Will attemtpt to send {len(batches)} batches of batch requests. Method: {batches[0][0]['method']}")
 
         for i, batch in enumerate(batches, start=1):
+            total += len(batch)
             print(f"Sending sub-batch request {i}/{len(batches)} with {len(batch)} requests.")
             batch_response = await self._post_batch_request(batch)
             if batch_response["status"] != 200:
                 return batch_response
         
-        print(f"Batch operation ({operation_name}) completed successfully.")
+        print(f"Batch operation ({operation_name}) completed successfully. Total number of requests: {total}")
 
         return {"status": 200, "body": "Batch request completed."}
     
@@ -180,7 +180,6 @@ class CustomGraphServiceClient(GraphServiceClient):
 
         return True
 
-
 def connect_to_azure(azure_conf) -> Union[CustomGraphServiceClient, str]:
     
     scope = ["https://graph.microsoft.com/.default"]
@@ -220,12 +219,11 @@ def connect_to_azure(azure_conf) -> Union[CustomGraphServiceClient, str]:
         return "Failed to acquire a token from Azure AD."
 
     response = requests.get(endpoint, headers={'Authorization': 'Bearer ' + access_token})
-    # print(response.json())
 
     if response.status_code == 200:
         print("Connected to Azure services.")
     else:
-        return "Failed to connect to Azure services. - api call failed"
+        return f"Failed to connect to Azure services. - api call failed. {response.status_code} - {response.text}"
 
     client = CustomGraphServiceClient(
         access_token=access_token,

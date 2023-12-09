@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, BackgroundTasks
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
-from mail import EmailClientSMTP, EmailClientAzure
+from mail import EmailClientIMAP, EmailClientAzure
 import asyncio
 import configparser
 from typing import Any, List, Optional, Union
@@ -30,12 +30,19 @@ config.read('config.cfg')
 email_address = config['imap']['email']
 email_password = config['imap']['pw']
 
-azure_client = mail_init.connect_to_azure(config["azure"])
+azure_client = mail_init.connect_to_azure(config["azure1"])
 if isinstance(azure_client, str):
     print(azure_client)
     exit()
 
 email_client = EmailClientAzure(azure_client)
+
+# Imap details
+# imap_server = "outlook.office365.com"
+# imap_port = 993
+
+# imap_client = EmailClientIMAP(imap_server, imap_port, email_address, email_password)
+# imap_client.connect()
 
 # Connect to MongoDB
 db_hanlder = AsyncIOMotorClient("mongodb://localhost:27017/")
@@ -113,6 +120,11 @@ async def shutdown_event_handler():
 @app.on_event("startup") # handle on startup background process setup
 async def startup_event_handler():
     ...
+
+@app.get("/shutdown")
+async def shutdown():
+    shutdown_background_processes.set()
+    return {"message": "Shutdown event set"}
 
 @app.get("/start_producer")
 async def start_producer(background_tasks: BackgroundTasks):
@@ -198,8 +210,6 @@ async def match_ship_to_cargos(ship: MongoShip):
         }).to_list(100)
 
         print(f"Found {len(cargos_by_month)} cargos for ship {ship.name}, in month range {ship.month_int - 1} - {ship.month_int + 1}")
-    
-
 
 async def endless_cargo_ship_matcher():
     # 1. Endless query for all ships with no cargo pairs
@@ -241,9 +251,10 @@ async def email_to_json_via_openai(email_message: EmailMessageAdapted) -> Union[
 async def read_emails_azure():
     
     messages = await email_client.get_emails(
-        top=1,
-        most_recent_first=False,
-        unseen_only=False
+        n=50,
+        most_recent_first=True,
+        unseen_only=False,
+        set_to_read=False
     )
 
     if isinstance(messages, str):
@@ -263,12 +274,14 @@ async def read_emails_azure():
 # Test view
 @app.get("/delete_spam_emails_azure")
 async def delete_spam_emails_azure():
-    remaining_emails = await email_client.read_emails_and_delete_spam(50)
+    start_time = datetime.now()
+    remaining_emails = await email_client.read_emails_and_delete_spam(500, unseen_only=True)
+    print(f"Time taken to fetch emails and create objects, whilst launching background tasks: {datetime.now() - start_time}")
+
     if isinstance(remaining_emails, str):
         return {"error": remaining_emails}
-    
-    for email in remaining_emails:
-        print(f"Remaining email: {email.date_received}, subject: {email.subject}")
+
+    print(f"Number of remaining emails: {len(remaining_emails)}")
 
 # Test view
 @app.get("/list_mail_folders")
@@ -288,12 +301,21 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
 
     # run some checks on email, to make sure it is worthy of processing
     # check if email is already in db. check for exact match in email.id field OR check if
-    email_in_db = await db["emails"].find_one({"id": email_message.id})
+    email_in_db = await db["emails"].find_one({
+        "$or": [
+            {"id": email_message.id},
+            {"body": email_message.body}
+            # {"subject": email_message.subject, "sender": email_message.sender},
+        ]
+    })
+
     if email_in_db:
+        #check if 
         print("Email already in database. ignoring")
-    else:
-        print("Email not in database. inserting")
-        await db["emails"].insert_one(email_message.mongo_db_object.dict())
+        return True
+
+    print("Email not in database. inserting")
+    await db["emails"].insert_one(email_message.mongo_db_object.dict())
 
     return True
 
