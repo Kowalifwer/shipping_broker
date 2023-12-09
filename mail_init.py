@@ -119,66 +119,6 @@ class CustomGraphServiceClient(GraphServiceClient):
                 return {"status": batch_response.status_code, "body": batch_response.text}
             
             return {"status": batch_response.status_code, "body": batch_response.json()}
-    
-    async def set_emails_to_read(self, email_ids: List[str]) -> bool:
-        #split email ids into batches based on BATCH_REQUEST_LIMIT
-        batches = [email_ids[i:i + BATCH_REQUEST_LIMIT] for i in range(0, len(email_ids), BATCH_REQUEST_LIMIT)]
-
-        print(f"Will set {len(email_ids)} emails to read in {len(batches)} batches")
-        for batch in batches:
-            status = await self._set_emails_to_read(batch)
-            if not status:
-                return False
-            print(f"Batch completed")
-
-        return True
-    
-    async def _set_emails_to_read(self, email_ids: List[str]) -> bool:
-
-        batch_requests = []
-
-        for i, email_id in enumerate(email_ids, start=1):
-
-            # Construct the URL for the specific email
-            request_url = f"{self.client.me_url_without_base}/messages/{email_id}"
-
-            # Construct the request body to update the 'isRead' property
-            request_body = {
-                "isRead": "true"
-            }
-
-            # Add the PATCH request to the batch
-            batch_requests.append({
-                "method": "PATCH",
-                "url": request_url,
-                "id": i,
-                "headers": {
-                    "Content-Type": "application/json",
-                },
-                "body": request_body,
-            })
-
-        # Send the batch request (async, since it might take some time)
-        async with httpx.AsyncClient() as client:
-            batch_response = await client.post(
-                url="https://graph.microsoft.com/v1.0/$batch",
-                json={"requests": batch_requests},
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.client.access_token_str}",
-                },
-            )
-
-            # Check if the batch request was successful
-            if batch_response.status_code != 200:
-                print(f"Error: Could not update emails to read - {batch_response.text}")
-                return False
-            
-            for response in batch_response.json()["responses"]:
-                if response["status"] != 200:
-                    print(f"Error: Could not update email {response['id']} to read - {response['body']['error']['message']}")
-
-        return True
 
 def connect_to_azure(azure_conf) -> Union[CustomGraphServiceClient, str]:
     
