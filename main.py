@@ -75,7 +75,7 @@ openai.api_key = config['openai']['api_key']
 # Route for the root endpoint
 @app.get("/")
 async def read_root():
-    await live_logger.report_to_channel("info", "Hello from the root endpoint Hello from the root endpointHello from the root endpointHello from the root endpoint")
+    await live_logger.report_to_channel("info", "Hello from the root endpoint Hello from the root endpoint")
     return {"message": "Welcome to your FastAPI app!"}
 
 @app.get("/info", response_class=HTMLResponse)
