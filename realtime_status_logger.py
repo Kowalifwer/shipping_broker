@@ -1,6 +1,5 @@
 from fastapi import WebSocket
 from fastapi.websockets import WebSocketDisconnect
-import asyncio
 from fastapi.routing import APIRouter
 from typing import List, Optional, Dict, overload, Union
 from datetime import datetime
