@@ -404,8 +404,6 @@ class EmailClientAzure:
             folder_filters = [f"parentFolderId eq '{folder_name}'" for folder_name in folders]
             folder_filter_string = " or ".join(folder_filters)
 
-            print(folder_filter_string)
-
             query_params = {
                 "top": min(n, MAX_MSG_PER_REQUEST),  # The maximum number of messages to return
                 "select": ['id', 'subject', 'sender', 'toRecipients', 'receivedDateTime', 'uniqueBody', 'isRead'],  # uniqueBody is the body of the email without any reply/forward history

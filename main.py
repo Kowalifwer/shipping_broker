@@ -10,21 +10,37 @@ from pydantic import ValidationError
 from gpt_prompts import prompt
 import json
 from motor.motor_asyncio import AsyncIOMotorClient
-
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from mail import EmailMessageAdapted
+from fastapi.templating import Jinja2Templates
 
 import openai
 import mail_init
 
+# Get credentials from config.cfg
+config = configparser.ConfigParser()
+config.read('config.cfg')
+
 app = FastAPI()
+
+# Serve static files from the "static" directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Create a Jinja2Templates instance and point it to the "templates" folder
+templates = Jinja2Templates(directory="templates")
+
+import realtime_status_logger
+
+# Add the router to the app, to also serve endpoints from the files below
+app.include_router(realtime_status_logger.router)
+
+# Create a LiveLogger instance that can be used to report status updates to 
+live_logger = realtime_status_logger.LiveLogger(realtime_status_logger.websocket_manager, channels=["info", "error", "warning"])
 
 #uvicorn main:app --reload
 #https://admin.exchange.microsoft.com/#/settings
 #https://admin.microsoft.com/#/users/:/UserDetails/6943c12b-f238-483e-af43-8e4cf25ba599/Mail
-
-# Get credentials from config.cfg
-config = configparser.ConfigParser()
-config.read('config.cfg')
 
 # Set your Outlook email and password (or App Password if 2FA is enabled)
 email_address = config['imap']['email']
@@ -59,7 +75,21 @@ openai.api_key = config['openai']['api_key']
 # Route for the root endpoint
 @app.get("/")
 async def read_root():
+    await live_logger.report_to_channel("info", "Hello from the root endpoint Hello from the root endpointHello from the root endpointHello from the root endpoint")
     return {"message": "Welcome to your FastAPI app!"}
+
+@app.get("/info", response_class=HTMLResponse)
+async def live_logging(request: Request):
+    # Provide data to be rendered in the template
+    data = {
+        "title": "Live Event Logging",
+        "message": "Hello, FastAPI!",
+        "user_id": live_logger.user_id,
+        "channels": live_logger.channels
+    }
+
+    # Render the template with the provided data
+    return templates.TemplateResponse("info.html", {"request": request, **data})
 
 @app.get("/gpt")
 async def gpt_prompt():
@@ -123,7 +153,9 @@ async def startup_event_handler():
 
 @app.get("/shutdown")
 async def shutdown():
+    print("setting shutdown event")
     shutdown_background_processes.set()
+    await live_logger.close_session()
     return {"message": "Shutdown event set"}
 
 @app.get("/start_producer")
