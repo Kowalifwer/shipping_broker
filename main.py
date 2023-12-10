@@ -75,7 +75,7 @@ openai.api_key = config['openai']['api_key']
 # Route for the root endpoint
 @app.get("/")
 async def read_root():
-    await live_logger.report_to_channel("info", "Hello from the root endpoint Hello from the root endpoint")
+    await live_logger.report_to_channel("info", "Hello from the root endpoint")
     return {"message": "Welcome to your FastAPI app!"}
 
 @app.get("/info", response_class=HTMLResponse)
@@ -89,7 +89,7 @@ async def live_logging(request: Request):
     }
 
     # Render the template with the provided data
-    return templates.TemplateResponse("info.html", {"request": request, **data})
+    return templates.TemplateResponse("live_logger.html", {"request": request, **data})
 
 @app.get("/gpt")
 async def gpt_prompt():

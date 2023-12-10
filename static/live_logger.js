@@ -58,8 +58,7 @@ window.addEventListener("load", function (event) {
 
     socket_handler();
 
-
-    // This code is a bit tricky. The goal is to reconnect to the server if the connection is lost, whilst showing an attempt counter to the user.
+    // This code is a bit tricky. The goal is to reconnect to the server socket, if the connection is lost, whilst showing an attempt counter to the user.
     // We reuse the socket_handler() function, to avoid code duplication and make sure all event listeners are set up correctly.
     // If we would have simply called the socket_handler() function again, it would have waited until the open event, and only run the code for the "open" event.
     // Therefore, there would be no way to show the user the reconnection attempt counter, since that code is triggered in the "close" and "error" events.
