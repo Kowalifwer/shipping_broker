@@ -1,6 +1,6 @@
 import imaplib
 import email
-from typing import List, Optional, Literal, Union, Type, Any
+from typing import List, Optional, Literal, Union, Type, Any, Protocol, TypeVar, Generic
 
 from email.message import EmailMessage as BaseEmailMessage
 from msgraph.generated.models.message import Message as AzureEmailMessage
@@ -18,6 +18,7 @@ from training.dummy_emails import examples
 import requests
 import asyncio
 
+# Helper functions
 def subject_reveals_email_is_failed(text: str) -> bool:
     """Returns True if the subject reveals that the email is an undeliverable email, False otherwise."""
 
@@ -45,15 +46,67 @@ def optional_chain_return_empty_str(obj, *attrs):
     """Returns the value of the first attribute in attrs that is not None, or "" if all attributes are None."""
     return optional_chain(obj, "", *attrs)
 
-class EmailMessageAdapted:
+class EmailMessageLike(Protocol):
+    """
+    An interface protocol containing all methods you must declare for every single class you are creating an adaptor from.
+    """
     
-    def __init__(self, base: Union[BaseEmailMessage, AzureEmailMessage]):
-        if not isinstance(base, (BaseEmailMessage, AzureEmailMessage)):
-            raise TypeError("base must be an instance of BaseEmailMessage or AzureEmailMessage.")
-        # Store a reference to the base object
-        self._base = base    
+    @property
+    def id(self) -> str:
+        ...
+    
+    @property
+    def subject(self) -> str:
+        ...
 
-    ## Start of additional methods for EmailMessageAdapted class
+    @property
+    def sender(self) -> str:
+        ...
+    
+    @property
+    def recipients(self) -> str:
+        ...
+
+    @property
+    def date_received(self) -> str:
+        ...
+    
+    @property
+    def is_read(self) -> bool:
+        ...
+    
+    @property
+    def body(self) -> str:
+        ...
+    
+    @property
+    def mongo_db_object(self) -> MongoEmail:
+        ...
+
+# Declare all the types that the EmailMessageAdapted class has support for.
+# If you want to add support for a new class, add it to this list.
+AdaptorSupportedClasses = Union[BaseEmailMessage, AzureEmailMessage]
+
+class EmailMessageAdapted(EmailMessageLike):
+    """
+    An adaptor class, that can take in various email objects, across different libraries, and adapt them to a common interface, with common methods and properties, defined in the EmailMessageLike protocol.
+    """
+    
+    def __init__(self, base: AdaptorSupportedClasses):
+        """
+        Initializes the EmailMessageAdapted with a base object.
+        
+        Args:
+            base (Union[BaseEmailMessage, AzureEmailMessage]): The base object to create adaptor for.
+        """
+
+        if not isinstance(base, AdaptorSupportedClasses):
+            raise TypeError("base must be an instance of BaseEmailMessage or AzureEmailMessage.")
+
+        # Store a reference to the base object
+        self._base = base
+
+    # Implementation of methods and properties defined in the EmailMessageLike protocol
     @property
     def id(self) -> str:
         if isinstance(self._base, AzureEmailMessage):
