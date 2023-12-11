@@ -6,6 +6,8 @@ MAX_ATTEMPTS = 10;
 ATTEMPT_DELAY = 1000;
 
 window.addEventListener("load", function (event) {
+    disable_button_actions();
+
     let user_id = document.getElementById("user_id").value;
     if (!user_id) {
         alert("No user id found, error fetching.");
@@ -36,6 +38,8 @@ window.addEventListener("load", function (event) {
             CURRENT_ATTEMPT = 1;
             status.textContent = "Connected to server!";
             status.style.color = "green";
+
+            enable_and_handle_button_actions();
         });
     
         socket.addEventListener("message", function (event) {
@@ -67,6 +71,9 @@ window.addEventListener("load", function (event) {
     // Once the socket is in the OPEN/connected state, we can continue the normal flow of the program by calling socket_handler() again.
     function handleSocketReconnect(msg) {
         // Attempt to reconnect to the server
+
+        // Disable button actions until the socket is connected again
+        disable_button_actions();
 
         // Make sure to close existing socket if it exists
         if (socket) {
@@ -130,40 +137,80 @@ window.addEventListener("load", function (event) {
     }
 });
 
-function connectToWebSocketWithRetry() {
-    let user_id = document.getElementById("user_id").value;
-    if (!user_id) {
-        alert("No user id found, error fetching.");
-        return;
-    }
+function enable_and_handle_button_actions() {
+    let actionsWrapper = document.getElementById("actions-wrapper");
 
-    let channels = document.getElementById("channels").value;
-    let channels_list = JSON.parse(channels);
-    if (!channels_list) {
-        alert("No channels found, error fetching.");
-        return;
-    }
-
-    const socket = new WebSocket(`ws://localhost:8000/ws/info/${user_id}/`);
-
-    socket.addEventListener("open", function (event) {
-        CURRENT_ATTEMPT = 1;
-        const status = document.getElementById("status");
-        status.textContent = "Connected to server!";
-        status.style.color = "green";
+    //firstly, enable all buttons
+    let buttons = actionsWrapper.querySelectorAll("button");
+    buttons.forEach(button => {
+        button.disabled = false;
+        button.title = "";
     });
 
-    socket.addEventListener("message", function (event) {
-        let socket_data = event.data;
-        let json_data = JSON.parse(socket_data);
+    // create a bubbler for the actionsWrapper, that listens to click event on each of its children (button elements)
+    // if button is clicked - check its state. it represents a process that can either be started or stopped.
+    // then trigger the appropriate action on the server.
+    // Note that the click should only be counted, IF the button is NOT disabled.
 
-        for (let key in json_data) {
-            addMessageToChannel(key, json_data[key]);
+    actionsWrapper.addEventListener("click", function (event) {
+        let target = event.target;
+        if (target.tagName == "BUTTON" && !target.disabled) {
+            let start_url = target.dataset.startUrl;
+            let stop_url = target.dataset.endUrl;
+            let state = target.dataset.state;
+
+            console.log(start_url, stop_url, state)
+
+            let vebose_text = target.querySelector("span");
+
+            // if state is "stopped" or does not exists - we need to start the process, by shooting a get request to the start_url
+            // if state is "started" - we need to stop the process, by shooting a get request to the stop_url
+            if (state == "stopped" || !state) {
+                // set button to disabled, until the request is finished
+                target.disabled = true;
+                fetch(start_url)
+                    .then(response => response.json())
+                    .then(data => {
+                        target.disabled = false;
+                        if (data.error) {
+                            alert(data.error);
+                        } else {
+                            target.dataset.state = "running";
+                            vebose_text.textContent = "Stop";
+                        }
+                    });
+
+            } else if (state == "running") {
+                // set button to disabled, until the request is finished
+                target.disabled = true;
+                fetch(stop_url)
+                    .then(response => response.json())
+                    .then(data => {
+                        target.disabled = false;
+                        if (data.error) {
+                            alert(data.error);
+                        } else {
+                            target.dataset.state = "stopped";
+                            console.log(target.dataset.state)
+                            vebose_text.textContent = "Start";
+                            console.log(vebose_text.textContent)
+                        }
+                    });
+            }
         }
     });
 }
 
+function disable_button_actions() {
+    let actionsWrapper = document.getElementById("actions-wrapper");
 
+    // disable all buttons
+    let buttons = actionsWrapper.querySelectorAll("button");
+    buttons.forEach(button => {
+        button.disabled = true;
+        button.title = "Please wait until the page is fully loaded.";
+    });
+}
 
 function addMessageToChannel(channel_name, message) {
     let channel = document.getElementById(`info_area_channel_${channel_name}`);
