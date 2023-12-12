@@ -47,6 +47,15 @@
     color: blue;
 }
 
+.progress-bar {
+    /* a progress bar with nice color */
+    height: 1rem;
+    background-color: #ccc;
+    margin: 1rem 0;
+    /* add shadow */
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+}
+
 *::-webkit-scrollbar {
     width: 8px;
     height: 8px;

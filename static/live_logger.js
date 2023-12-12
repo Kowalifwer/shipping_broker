@@ -215,9 +215,35 @@ function disable_button_actions() {
 function addMessageToChannel(channel_name, message) {
     let channel = document.getElementById(`info_area_channel_${channel_name}`);
     if (channel) {
-        let message_item = document.createElement("p");
-        message_item.textContent = message;
-        channel.appendChild(message_item);
+        if (channel_name == "capacities") {
+            // capacities will return a string with 2 number values, separated by a comma, i.e "1,2" or "8,10".
+            // this represents the current queue capacity
+            // we want to display this as a progress bar, with the first number being the current value, and the second number being the max value.
+            let values = message.split(",");
+            let current_value = parseInt(values[0]);
+            let max_value = parseInt(values[1]);
+
+            // create a progress bar
+            let progress_bar = document.createElement("div");
+            progress_bar.classList.add("progress-bar");
+            progress_bar.setAttribute("role", "progressbar");
+            progress_bar.setAttribute("aria-valuemin", "0");
+            progress_bar.setAttribute("aria-valuemax", max_value);
+            progress_bar.setAttribute("aria-valuenow", current_value);
+            progress_bar.style.width = `${(current_value / max_value) * 100}%`;
+
+            // add a p title above the progress bar, to show the current value
+            let p_title = document.createElement("p");
+            p_title.textContent = `Queue capacity: ${current_value}/${max_value} items`;
+
+            channel.innerHTML = "";
+            channel.appendChild(p_title);
+            channel.appendChild(progress_bar);
+        } else {
+            let message_item = document.createElement("p");
+            message_item.textContent = message;
+            channel.appendChild(message_item);
+        }
     } else {
         console.error(`Channel ${channel_name} not found.`);
     }

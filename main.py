@@ -35,6 +35,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 from realtime_status_logger import router, live_logger
+live_logger.set_channels(["info", "warning", "error", "capacities"])
 
 # Add the router to the app, to also serve endpoints from the files below
 app.include_router(router)
@@ -138,25 +139,6 @@ SDBC MAX 25 Y.O.
 
 # Create an async FIFO queue for processing emails (acts as a simple MQ pipeline, simple alternative to Celery, for now)
 
-mail_queue = asyncio.Queue(maxsize=10) # A maximum buffer of 1,000 emails
-
-shutdown_background_processes = asyncio.Event()
-
-@app.on_event("shutdown") # on shutdown, shut all background processes too.
-async def shutdown_event_handler():
-    shutdown_background_processes.set()
-
-@app.on_event("startup") # handle on startup background process setup
-async def startup_event_handler():
-    ...
-
-@app.get("/shutdown")
-async def shutdown():
-    print("setting shutdown event")
-    shutdown_background_processes.set()
-    await live_logger.close_session()
-    return {"message": "Shutdown event set"}
-
 @app.get("/{action}/{task_type}/{name}")
 async def launch_backgrond_task(background_tasks: BackgroundTasks, action: Literal["start", "end"], task_type: Literal["consumer", "producer"], name: str):
     if action not in ["start", "end"]:
@@ -170,10 +152,14 @@ async def launch_backgrond_task(background_tasks: BackgroundTasks, action: Liter
     if name not in MQ_HANDLER:
         live_logger.report_to_channel("error", f"Invalid task name {name}. Must be one of {MQ_HANDLER.keys()}")
         return {"error": f"Invalid task name {name}. Must be one of {MQ_HANDLER.keys()}"}
+    
+    # Remove last word after underscore, and capitalize
 
     task_function = MQ_HANDLER[name][0]
     task_event = MQ_HANDLER[name][1]
     message_queue = MQ_HANDLER[name][2]
+
+    name = " ".join(name.split("_")[:-1]).capitalize()
 
     if action == "start":
         task_event.clear()
@@ -182,12 +168,10 @@ async def launch_backgrond_task(background_tasks: BackgroundTasks, action: Liter
     elif action == "end":
         task_event.set()
 
-    live_logger.report_to_channel("info", f"{task_type.capitalize()} task - {name} {action}ed")
+    live_logger.report_to_channel("info", f"Request to {action} '{task_type.capitalize()}' task '{name}' processed.")
 
-    return {"message": f"{task_type.capitalize()} task - {name} {action}ed"}
+    return {"message": f"Request to {action} '{task_type.capitalize()}' task '{name}' processed."}
 
-
-from typing import Iterator
 async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     # 1. Read all UNSEEN emails from the mailbox, every 5 seconds, or if email queue is processed.
 
@@ -197,7 +181,7 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
 
         email_generator = email_client.endless_email_read_generator(
             n=9999,
-            batch_size=4,
+            batch_size=8,
 
             most_recent_first=True,
             unseen_only=False,
@@ -248,13 +232,13 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
                     live_logger.report_to_channel("info", f"Full email batch added to MQ succesfully.")
                     batch_processed = True
 
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(0.2)
 
             if end_email_fetching: # if producer got stopped - we must break out of the generator for loop
                 print("breaking out of generator for loop - producer stop command received")
                 break      
 
-    print("producer task ended completely")
+    live_logger.report_to_channel("info", f"Producer closed verified.")
 
 
 async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
@@ -264,17 +248,35 @@ async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue: asyncio.Qu
         print("consumer fetched email from queue")
         await process_email_dummy(email)
 
-MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=10) # A maximum buffer of 10 emails
-MQ_GPT_EMAIL_TO_DB = asyncio.Queue(maxsize=10) # A maximum buffer of 10 emails
+async def queue_capacity_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
+    # 3. Check the queue capacity every 5 seconds, and report to the live logger
+    while not stoppage_event.is_set():
+        await asyncio.sleep(0.2)
+        live_logger.report_to_channel("capacities", f"{queue.qsize()},{queue.maxsize}", add_timestamp=False)
+
+async def flush_queue(stoppage_event: asyncio.Event, queue: asyncio.Queue):
+    
+    ##remove all items from queue
+    while not queue.empty() and not stoppage_event.is_set():
+        queue.get_nowait()
+        await asyncio.sleep(0.1)
+    
+    live_logger.report_to_channel("info", f"Queue flushed.")
+
+MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=150) # A maximum buffer of 10 emails
+MQ_GPT_EMAIL_TO_DB = asyncio.Queue(maxsize=150) # A maximum buffer of 10 emails
 
 # Please respect the complex signature of this dictionary. You have to create your async functions with the specified signature, and add them to the dictionary below.
 MQ_HANDLER: Dict[str, Tuple[
         Callable[[asyncio.Event, asyncio.Queue], Coroutine[Any, Any, None]], 
-        asyncio.Event, 
+        asyncio.Event,
         asyncio.Queue]
     ] = {
     "mailbox_read_producer": (mailbox_read_producer, asyncio.Event(), MQ_MAILBOX),   
     "mailbox_read_consumer": (mailbox_read_consumer, asyncio.Event(), MQ_MAILBOX),
+
+    "queue_capacity_producer": (queue_capacity_producer, asyncio.Event(), MQ_MAILBOX),
+    "flush_queue_producer": (flush_queue, asyncio.Event(), MQ_MAILBOX),
 
     # "gpt_email_producer": (gpt_email_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
     # "gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
@@ -610,6 +612,28 @@ async def regex():
     print(matches)
 
     return {"message": matches}
+
+shutdown_background_processes = asyncio.Event()
+
+@app.on_event("shutdown") # on shutdown, shut all background processes too.
+async def shutdown_event_handler():
+    shutdown_background_processes.set()
+
+@app.on_event("startup") # handle on startup background process setup
+async def startup_event_handler():
+    ...
+
+@app.get("/shutdown")
+async def shutdown():
+    print("setting shutdown event")
+    shutdown_background_processes.set()
+    await live_logger.close_session()
+
+    # Shut off any running producer/consumer tasks
+    for tasks in MQ_HANDLER.values():
+        tasks[1].set()
+
+    return {"message": "Shutdown event set"}
 
 if __name__ == "__main__":
     import uvicorn

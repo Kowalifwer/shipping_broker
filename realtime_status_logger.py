@@ -63,15 +63,17 @@ class LiveLogger:
         #generate a random user id
         self.user_id = "1" #TODO: in future if dealing with multiple users, generate a random user id
     
-    def report_to_channel(self, channel: str, message: str):
+    def report_to_channel(self, channel: str, message: str, add_timestamp: bool = True):
         if channel not in self.channels:
             raise Exception("Reporting to a channel that is not registered. Please register the channel first in the LiveLogger.channels list.")
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        message = f"{timestamp}: {message}" if add_timestamp else message
         
         task = self.websocket_manager.send_update_json(
             self.user_id,
-            {channel: f"{timestamp}: {message}"}
+            {channel: message}
         )
 
         asyncio.create_task(task)
@@ -82,6 +84,10 @@ class LiveLogger:
     
     async def close_session(self):
         await self.websocket_manager.disconnect_all()
+    
+    #channels setter
+    def set_channels(self, channels: List[str]):
+        self.channels = channels
 
 @router.websocket("/ws/info/{user_id}/")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
