@@ -4,6 +4,7 @@
 CURRENT_ATTEMPT = 1;
 MAX_ATTEMPTS = 10;
 ATTEMPT_DELAY = 1000;
+QUEUE_IDS = {};
 
 window.addEventListener("load", function (event) {
     disable_button_actions();
@@ -222,23 +223,39 @@ function addMessageToChannel(channel_name, message) {
             let values = message.split(",");
             let current_value = parseInt(values[0]);
             let max_value = parseInt(values[1]);
+            let q_id = values[2];
 
-            // create a progress bar
-            let progress_bar = document.createElement("div");
-            progress_bar.classList.add("progress-bar");
-            progress_bar.setAttribute("role", "progressbar");
-            progress_bar.setAttribute("aria-valuemin", "0");
+            let progress_bar_wrapper = document.getElementById(q_id);
+
+            if (!progress_bar_wrapper) {
+                // create a progress bar
+                progress_bar_wrapper = document.createElement("div");
+                progress_bar_wrapper.classList.add("progress-bar-wrapper");
+                progress_bar_wrapper.id = q_id;
+
+                let progress_bar = document.createElement("div");
+                progress_bar.classList.add("progress-bar");
+                progress_bar.setAttribute("role", "progressbar");
+                progress_bar.setAttribute("aria-valuemin", "0");
+
+                let p_title = document.createElement("p");
+
+                progress_bar_wrapper.appendChild(p_title);
+                progress_bar_wrapper.appendChild(progress_bar);
+
+                channel.appendChild(progress_bar_wrapper);
+            }
+
+            let progress_bar = progress_bar_wrapper.querySelector(".progress-bar");
+            let p_title = progress_bar_wrapper.querySelector("p");
+
+            // update the progress bar
             progress_bar.setAttribute("aria-valuemax", max_value);
             progress_bar.setAttribute("aria-valuenow", current_value);
             progress_bar.style.width = `${(current_value / max_value) * 100}%`;
 
-            // add a p title above the progress bar, to show the current value
-            let p_title = document.createElement("p");
+            // update the title of the progress bar
             p_title.textContent = `Queue capacity: ${current_value}/${max_value} items`;
-
-            channel.innerHTML = "";
-            channel.appendChild(p_title);
-            channel.appendChild(progress_bar);
         } else {
             let message_item = document.createElement("p");
             message_item.textContent = message;
