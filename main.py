@@ -193,19 +193,21 @@ async def mailbox_read_producer(event: asyncio.Event, queue: asyncio.Queue):
     emails: List[EmailMessageAdapted] = []
     email_iterator: Iterator[EmailMessageAdapted] = iter(emails)
     attempt_interval = 5
-    email_batch_size = 50
+    total_emails_to_read = 1000
 
     while not event.is_set():
 
         
         if len(list(email_iterator)) == 0: # IF first iteration, OR the iterator is exhausted,- then fetch new emails.
-            emails = await email_client.get_emails(
-                n=email_batch_size,
+            async for email_batch in email_client.fetch_emails_until_n_generator(
+                n=total_emails_to_read,
                 most_recent_first=True,
                 unseen_only=False,
                 set_to_read=False,
                 remove_undelivered=True
-            )
+            ):
+                emails = email_batch
+
         # Occurs if emails carried over from previous iteration, due to queue being full - so wait 5 seconds before trying again.
         else: 
             await asyncio.sleep(attempt_interval)

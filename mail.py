@@ -421,13 +421,13 @@ class EmailClientAzure:
     async def fetch_emails_until_n_generator(self, 
         # Below are the parameters for the api call
         # sender_email: Optional[str] = None,
-        n: int = 5,
+        n: int = 9999,
         unseen_only: bool = True,
         most_recent_first: bool = True,
 
         folders: List[str] = ["inbox", "junkemail"], # List of folders to search in. For all shortcuts: # https://learn.microsoft.com/en-us/graph/api/resources/mailfolder?view=graph-rest-1.0 for all mail folder access shortcuts
 
-        # Below are the parameters for post-processingww
+        # Below are the parameters for post-processing
         remove_undelivered: bool = True,
         set_to_read: bool = True,
     ) -> AsyncGenerator[List[EmailMessageAdapted], None]:
@@ -551,7 +551,7 @@ class EmailClientAzure:
 
                                 next_link = messages.odata_next_link
                                 yielded_messages_count += len(messages.value)
-                                yield extract_final_message_list_and_launch_postprocessing(messages.value)
+                                yield [EmailMessageAdapted(message) for message in messages.value]
 
                                 if not next_link:
                                     live_logger.report_to_channel("info", f"Retrieval cut short as all emails have been read. Total of {yielded_messages_count} emails retrieved, even though {n} were requested.")
