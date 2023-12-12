@@ -3,7 +3,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from mail import EmailClientIMAP, EmailClientAzure
 import asyncio
 import configparser
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Union, Literal, Coroutine, Dict, Tuple, Callable
 from datetime import datetime
 from db import MongoEmail, MongoShip, MongoCargo
 from pydantic import ValidationError
@@ -30,13 +30,10 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Create a Jinja2Templates instance and point it to the "templates" folder
 templates = Jinja2Templates(directory="templates")
 
-import realtime_status_logger
+from realtime_status_logger import router, live_logger
 
 # Add the router to the app, to also serve endpoints from the files below
-app.include_router(realtime_status_logger.router)
-
-# Create a LiveLogger instance that can be used to report status updates to 
-live_logger = realtime_status_logger.LiveLogger(realtime_status_logger.websocket_manager, channels=["info", "error", "warning"])
+app.include_router(router)
 
 #uvicorn main:app --reload
 #https://admin.exchange.microsoft.com/#/settings
@@ -75,17 +72,18 @@ openai.api_key = config['openai']['api_key']
 # Route for the root endpoint
 @app.get("/")
 async def read_root():
-    await live_logger.report_to_channel("info", "Hello from the root endpoint")
+    live_logger.report_to_channel("info", "Hello from the root endpoint")
     return {"message": "Welcome to your FastAPI app!"}
 
 @app.get("/info", response_class=HTMLResponse)
-async def live_logging(request: Request):
+async def live_log(request: Request):
     # Provide data to be rendered in the template
     data = {
         "title": "Live Event Logging",
         "message": "Hello, FastAPI!",
         "user_id": live_logger.user_id,
-        "channels": live_logger.channels
+        "channels": live_logger.channels,
+        "buttons": mq_setup_to_frontend_template_data()
     }
 
     # Render the template with the provided data
@@ -139,6 +137,7 @@ SDBC MAX 25 Y.O.
     return final
 
 # Create an async FIFO queue for processing emails (acts as a simple MQ pipeline, simple alternative to Celery, for now)
+
 mail_queue = asyncio.Queue(maxsize=10) # A maximum buffer of 1,000 emails
 
 shutdown_background_processes = asyncio.Event()
@@ -158,39 +157,128 @@ async def shutdown():
     await live_logger.close_session()
     return {"message": "Shutdown event set"}
 
-@app.get("/start_producer")
-async def start_producer(background_tasks: BackgroundTasks):
-    background_tasks.add_task(endless_mailbox_producer)
-    return {"message": "Mailbox reader producer started"}
+@app.get("/{action}/{task_type}/{name}")
+async def launch_backgrond_task(background_tasks: BackgroundTasks, action: Literal["start", "end"], task_type: Literal["consumer", "producer"], name: str):
+    if action not in ["start", "end"]:
+        live_logger.report_to_channel("error", f"Invalid action {action}. Must be either 'start' or 'end'")
+        return {"error": f"Invalid action {action}. Must be either 'start' or 'end'"}
 
-@app.get("/start_consumer")
-async def start_consumer(background_tasks: BackgroundTasks):
-    background_tasks.add_task(endless_mailbox_consumer)
-    return {"message": "Mailbox reader consumer started"}
+    if task_type not in ["consumer", "producer"]:
+        live_logger.report_to_channel("error", f"Invalid task type {task_type}. Must be either 'consumer' or 'producer'")
+        return {"error": f"Invalid task type {task_type}. Must be either 'consumer' or 'producer'"}
 
-async def endless_mailbox_producer():
+    if name not in MQ_HANDLER:
+        live_logger.report_to_channel("error", f"Invalid task name {name}. Must be one of {MQ_HANDLER.keys()}")
+        return {"error": f"Invalid task name {name}. Must be one of {MQ_HANDLER.keys()}"}
+
+    task_function = MQ_HANDLER[name][0]
+    task_event = MQ_HANDLER[name][1]
+    message_queue = MQ_HANDLER[name][2]
+
+    if action == "start":
+        task_event.clear()
+
+        background_tasks.add_task(task_function, task_event, message_queue)
+    elif action == "end":
+        task_event.set()
+
+    live_logger.report_to_channel("info", f"{task_type.capitalize()} task - {name} {action}ed")
+
+    return {"message": f"{task_type.capitalize()} task - {name} {action}ed"}
+
+
+from typing import Iterator
+async def mailbox_read_producer(event: asyncio.Event, queue: asyncio.Queue):
     # 1. Read all UNSEEN emails from the mailbox, every 5 seconds, or if email queue is processed.
+    emails: List[EmailMessageAdapted] = []
+    email_iterator: Iterator[EmailMessageAdapted] = iter(emails)
+    attempt_interval = 5
+    email_batch_size = 50
 
-    while not shutdown_background_processes.is_set():
-        emails = await mail_handler.read_emails_dummy(
-            #all emails search criteria
-            search_criteria="UNSEEN",
-            num_emails=1,
-            # search_keyword="MAP TA PHUT"
-        )
-        total = len(emails)
-        print(f"Fetched {total} emails from smtp server")
+    while not event.is_set():
+        if len(list(email_iterator)) == 0: # IF first iteration, OR the iterator is exhausted,- then fetch new emails.
+            emails = await email_client.get_emails(
+                n=email_batch_size,
+                most_recent_first=True,
+                unseen_only=False,
+                set_to_read=False,
+                remove_undelivered=True
+            )
+        # Occurs if emails carried over from previous iteration, due to queue being full - so wait 5 seconds before trying again.
+        else: 
+            await asyncio.sleep(attempt_interval)
+        
+        if isinstance(emails, str):
+            live_logger.report_to_channel("error", f"Error reading emails from mailbox. {emails}. Closing producer.")
+            break
 
-        for i, email in enumerate(emails):
-            print(f"putting email {i}/{total} in queue")
-            await mail_queue.put(email)
+        if isinstance(emails, list) and not emails:
+            live_logger.report_to_channel("info", f"No emails found in mailbox.")
+            break
 
-async def endless_mailbox_consumer():
+        email_iterator = iter(emails) # needed as a way to track exhaustion of iterator, and to add remaining emails to the start of the list, to be processed in the next iteration
+        for count, email in enumerate(email_iterator, start=1):
+            try:
+                if event.is_set(): # if producer got stopped in the middle of processing emails, then we must unset the read flag for the remaining emails
+                    ##for remaining emails, unset the read flag
+                    # email_ids = [email.id] + [email.id for email in email_iterator]
+                    # asyncio.create_task(email_client.set_email_seen_status(email_ids, False))
+                    break
+
+                queue.put_nowait(email)
+                live_logger.report_to_channel("info", f"Email {count} placed in queue.")
+
+            except asyncio.QueueFull:
+                live_logger.report_to_channel("warning", f"{queue.qsize()}/{queue.maxsize} emails in messenger queue - waiting for queue to free up space.")
+                emails = [email] + emails[count:] # add the remaining emails to the start of the list, to be processed in the next iteration
+                break
+
+        # If emails got exhausted (also cover the edge case process getting stopped, on the very LAST email, causing exhaustion but not success of whole operation)
+        if len(list(email_iterator)) == 0 and not event.is_set():
+            live_logger.report_to_channel("info", f"Email batch of {email_batch_size} added to MQ succesfully.")
+            await asyncio.sleep(2)
+        else:
+            live_logger.report_to_channel("warning", f"Failed to add {email_batch_size} size batch to queue. Producer closing before more space free'd up.")
+
+    print("producer finished")
+
+
+async def mailbox_read_consumer(event: asyncio.Event, queue: asyncio.Queue):
     # 2. Process all emails in the queue, every 10 seconds, or if email queue is processed.
-    while not shutdown_background_processes.is_set():
-        email = await mail_queue.get() # get email from queue
+    while not event.is_set():
+        email = await queue.get() # get email from queue
         print("consumer fetched email from queue")
         await process_email_dummy(email)
+
+MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=10) # A maximum buffer of 10 emails
+MQ_GPT_EMAIL_TO_DB = asyncio.Queue(maxsize=10) # A maximum buffer of 10 emails
+
+# Please respect the complex signature of this dictionary. You have to create your async functions with the specified signature, and add them to the dictionary below.
+MQ_HANDLER: Dict[str, Tuple[
+        Callable[[asyncio.Event, asyncio.Queue], Coroutine[Any, Any, None]], 
+        asyncio.Event, 
+        asyncio.Queue]
+    ] = {
+    "mailbox_read_producer": (mailbox_read_producer, asyncio.Event(), MQ_MAILBOX),   
+    "mailbox_read_consumer": (mailbox_read_consumer, asyncio.Event(), MQ_MAILBOX),
+
+    # "gpt_email_producer": (gpt_email_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
+    # "gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
+}
+
+def mq_setup_to_frontend_template_data():
+    buttons = []
+    for key in MQ_HANDLER:
+        title_words = key.split("_")
+        task_type = title_words[-1]
+        title = " ".join(title_words).capitalize()
+
+        buttons.append({
+            "name": title,
+            "start_url": f"/start/{task_type}/{key}",
+            "end_url": f"/end/{task_type}/{key}"
+        })
+    return buttons
 
 async def match_ship_to_cargos(ship: MongoShip):
     #query all cargos, first in a quantity_int +- 20% range
@@ -258,56 +346,37 @@ async def process_email_dummy(email_message: EmailMessageAdapted) -> Union[bool,
     print("processing email")
     await asyncio.sleep(5) # simulate the gpt api call time
     return True
-
-async def email_to_json_via_openai(email_message: EmailMessageAdapted) -> Union[str, dict]:
-    try:
-        response = await openai.ChatCompletion.acreate(
-            model="gpt-3.5-turbo-1106",
-            temperature=0.2,
-            # top_p=1,
-            response_format={ "type": "json_object" },
-            messages=[
-                {"role": "system", "content": prompt.system},
-                {"role": "user", "content": email_message.body}
-            ]
-        )
-        json_response = response.choices[0].message.content # type: ignore
-
-        final = json.loads(json_response)
-        return final
-
-    except Exception as e:
-        return f"Error in email_to_json_via_openai - {e}"
     
 @app.get("/read_emails_azure")
 async def read_emails_azure():
     
-    messages = await email_client.get_emails(
+    emails = await email_client.get_emails(
         n=50,
         most_recent_first=True,
         unseen_only=False,
         set_to_read=False
     )
 
-    if isinstance(messages, str):
-        return {"error": messages}
+    if isinstance(emails, str):
+        return {"error": emails}
     
 
-    for i, message in enumerate(messages, start=1):
-        print(f"msg {i}: {message.date_received}, subject: {message.subject}")
+    for i, email in enumerate(emails, start=1):
+        print(f"msg {i}: {email.date_received}, subject: {email.subject}")
 
-        output = await process_email(message)
+
+        output = await process_email(email)
         if output != True:
             return {"message": output}
 
 
-    return {"message": messages}
+    return {"emails": len(emails)}
 
 # Test view
 @app.get("/delete_spam_emails_azure")
 async def delete_spam_emails_azure():
     start_time = datetime.now()
-    remaining_emails = await email_client.read_emails_and_delete_spam(100, unseen_only=False)
+    remaining_emails = await email_client.read_emails_and_delete_spam(500, unseen_only=False)
     print(f"Time taken to fetch emails and create objects, whilst launching background tasks: {datetime.now() - start_time}")
 
     if isinstance(remaining_emails, str):
@@ -326,12 +395,41 @@ async def list_mail_folders():
 
     return {"message": folders}
 
-async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
+async def email_to_json_via_openai(email_message: EmailMessageAdapted) -> dict:
     
     #https://github.com/openai/openai-cookbook/blob/main/examples/api_request_parallel_processor.py -> parallel processing example
+    """
+    Convert an email message to JSON using OpenAI ChatCompletion.
 
-    # run some checks on email, to make sure it is worthy of processing
-    # check if email is already in db. check for exact match in email.id field OR check if
+    Parameters:
+    - email_message (EmailMessageAdapted): The email message to be converted.
+
+    Returns:
+    Union[str, dict]: The JSON representation of the email message, or an error message.
+
+    Raises:
+    - OpenAIError: If there is an error in the OpenAI API request.
+    - json.JSONDecodeError: If there is an error decoding the JSON response.
+    """
+
+    response = await openai.ChatCompletion.acreate(
+        model="gpt-3.5-turbo-1106",
+        temperature=0.2,
+        # top_p=1,
+        response_format={ "type": "json_object" },
+        messages=[
+            {"role": "system", "content": prompt.system},
+            {"role": "user", "content": email_message.body}
+        ]
+    )
+    json_response = response.choices[0].message.content # type: ignore
+
+    final = json.loads(json_response)
+    return final
+    
+async def add_email_to_db(email_message: EmailMessageAdapted) -> bool:
+    """Add email to database, if it doesn't already exist. Return True if added, False if already exists."""
+
     email_in_db = await db["emails"].find_one({
         "$or": [
             {"id": email_message.id},
@@ -343,31 +441,21 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     if email_in_db:
         # TODO: consider updating the fields on the duplicate object, such as date_recieved or store a counter of duplicates, if this into will be useful later.
         print("Email already in database. ignoring")
-        return True
+        return False
 
     print("Email not in database. inserting")
-    await db["emails"].insert_one(email_message.mongo_db_object.dict())
+    await db["emails"].insert_one(email_message.mongo_db_object.model_dump())
 
     return True
 
-    # Converting email to JSON via GPT-3.5
-    gpt_response = await email_to_json_via_openai(email_message)
-    if isinstance(gpt_response, str):
-        return gpt_response
+async def insert_gpt_entries_into_db(entries: List[dict], email: MongoEmail) -> None:
+    """Insert GPT-3.5 entries into database."""
 
-    entries = gpt_response.get("entries", [])
-    if not entries:
-        return "No entries returned from GPT-3"
-
-
-
-    email: MongoEmail = email_message.mongo_db_object
     ignored_entries = []
     ships = []
     cargos = []
 
     for entry in entries:
-        print(entry)
 
         entry_type = entry.get("type")
         if entry_type not in ["ship", "cargo"]:
@@ -380,7 +468,7 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
             try:
                 ship = MongoShip(**entry)
 
-                ships.append(ship.dict())
+                ships.append(ship.model_dump())
             except ValidationError as e:
                 ignored_entries.append(entry)
                 print("Error validating ship. skipping addition", e)
@@ -389,16 +477,13 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
             try:
                 cargo = MongoCargo(**entry)
 
-                cargos.append(cargo.dict())
+                cargos.append(cargo.model_dump())
             except ValidationError as e:
                 ignored_entries.append(entry)
                 print("Error validating cargo. skipping addition", e)
-
-    if ignored_entries:
-        print("ignored entries", ignored_entries)
     
     # Insert email into MongoDB
-    await db["emails"].insert_one(email.dict())
+    await db["emails"].insert_one(email.model_dump())
 
     if ships:
         # Insert ships into MongoDB
@@ -407,8 +492,35 @@ async def process_email(email_message: EmailMessageAdapted) -> Union[bool, str]:
     if cargos:
         # Insert cargos into MongoDB
         await db["cargos"].insert_many(cargos)
+    
+    live_logger.report_to_channel("info", f"Inserted {len(ships)} ships and {len(cargos)} cargos into database.")
+    if ignored_entries:
+        live_logger.report_to_channel("warning", f"Additionally, ignored {len(ignored_entries)} entries from GPT-3.5. {ignored_entries}")
 
-    return True
+async def process_email(email_message: EmailMessageAdapted) -> None:
+
+    email_added = await add_email_to_db(email_message)
+
+    if not email_added:
+        live_logger.report_to_channel("warning", f"Email with id {email_message.id} already in database. Ignoring.")
+        return
+
+    # Converting email to JSON via GPT-3.5
+    try:
+        gpt_response = await email_to_json_via_openai(email_message)
+    except Exception as e:
+        live_logger.report_to_channel("error", f"Error converting email to JSON via GPT-3.5. {e}")
+        return
+
+    entries = gpt_response.get("entries", [])
+    if not entries:
+        live_logger.report_to_channel("error", f"Error in processing email - No entries returned from GPT-3.5.")
+        return
+
+    email: MongoEmail = email_message.mongo_db_object
+    
+    # For simplicity, the function below will handle logging to the live_logger
+    await insert_gpt_entries_into_db(entries, email)
 
 global_task_dict = {} # to track which endless tasks are running
 
@@ -457,7 +569,7 @@ async def read_emails():
 
         # for email_message in emails:
         #     # Process or display email details as needed
-        #     db_entries.append(email_message.mongo_db_object.dict())
+        #     db_entries.append(email_message.mongo_db_object.model_dump())
         
         # # Insert emails into MongoDB
         # await db["emails"].insert_many(db_entries)

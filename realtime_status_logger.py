@@ -3,6 +3,7 @@ from fastapi.websockets import WebSocketDisconnect
 from fastapi.routing import APIRouter
 from typing import List, Optional, Dict, overload, Union
 from datetime import datetime
+import asyncio
 # Create a router and add the endpoints
 router = APIRouter()
 
@@ -62,19 +63,22 @@ class LiveLogger:
         #generate a random user id
         self.user_id = "1" #TODO: in future if dealing with multiple users, generate a random user id
     
-    async def report_to_channel(self, channel: str, message: str):
+    def report_to_channel(self, channel: str, message: str):
         if channel not in self.channels:
             raise Exception("Reporting to a channel that is not registered. Please register the channel first in the LiveLogger.channels list.")
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        await self.websocket_manager.send_update_json(
+        
+        task = self.websocket_manager.send_update_json(
             self.user_id,
             {channel: f"{timestamp}: {message}"}
         )
+
+        asyncio.create_task(task)
     
-    async def report_to_all_channels(self, message: str):
+    def report_to_all_channels(self, message: str):
         for channel in self.channels:
-            await self.report_to_channel(channel, message)
+            self.report_to_channel(channel, message)
     
     async def close_session(self):
         await self.websocket_manager.disconnect_all()
@@ -93,3 +97,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
 
     except Exception as e:
         print(f"Exception occured in websocket_endpoint process for socket {websocket}: {e}")
+
+# create an instance of LiveLogger that can be imported ad used across different modules in the application
+live_logger = LiveLogger(websocket_manager, channels=["info", "error", "warning"])

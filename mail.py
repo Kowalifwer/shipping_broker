@@ -371,9 +371,10 @@ class EmailClientAzure:
         except Exception as e:
             return str(e)    
 
-    async def set_emails_to_read(self, email_ids: List[str]) -> bool:
+    async def set_email_seen_status(self, email_ids: List[str], set_to_read: bool = True) -> bool:
 
         batch_requests = []
+        status = "true" if set_to_read else "false"
 
         for i, email_id in enumerate(email_ids):
 
@@ -386,7 +387,7 @@ class EmailClientAzure:
                     "Content-Type": "application/json",
                 },
                 "body": {
-                    "isRead": "true"  # Sets the email to read
+                    "isRead": status  # Sets the email to read
                 },
             })
 
@@ -398,7 +399,7 @@ class EmailClientAzure:
 
         batch_requests = []
 
-        for i, email_id in enumerate(email_ids):
+        for i, email_id in enumerate(email_ids, start=1):
 
             # Add the DELETE request to the batch
             batch_requests.append({
@@ -424,10 +425,10 @@ class EmailClientAzure:
 
         folders: List[str] = ["inbox", "junkemail"], # List of folders to search in. For all shortcuts: # https://learn.microsoft.com/en-us/graph/api/resources/mailfolder?view=graph-rest-1.0 for all mail folder access shortcuts
 
-        # Below are the parameters for post-processing
+        # Below are the parameters for post-processingww
         remove_undelivered: bool = True,
         set_to_read: bool = True,
-    ) -> Union[List[EmailMessageAdapted], str]:
+    ) -> List[EmailMessageAdapted]:
         """
         Retrieves a list of email messages from the user's mailbox.
 
@@ -559,7 +560,7 @@ class EmailClientAzure:
 
                 # Launch a background task to delete and mark emails as read, if necessary
                 if set_to_read:
-                    asyncio.create_task(self.set_emails_to_read(to_mark_as_read))
+                    asyncio.create_task(self.set_email_seen_status(to_mark_as_read))
                 if remove_undelivered:
                     asyncio.create_task(self.delete_emails(to_delete))
 
@@ -569,7 +570,7 @@ class EmailClientAzure:
             return []
 
         except Exception as e:
-            return str(e)
+            raise Exception(f"Error: Could not read emails - {e}")
 
     async def get_email_attachments(self, message_id: str) -> Union[list, str]:
         """
