@@ -196,6 +196,8 @@ async def mailbox_read_producer(event: asyncio.Event, queue: asyncio.Queue):
     email_batch_size = 50
 
     while not event.is_set():
+
+        
         if len(list(email_iterator)) == 0: # IF first iteration, OR the iterator is exhausted,- then fetch new emails.
             emails = await email_client.get_emails(
                 n=email_batch_size,
@@ -215,7 +217,7 @@ async def mailbox_read_producer(event: asyncio.Event, queue: asyncio.Queue):
         if isinstance(emails, list) and not emails:
             live_logger.report_to_channel("info", f"No emails found in mailbox.")
             break
-
+        
         email_iterator = iter(emails) # needed as a way to track exhaustion of iterator, and to add remaining emails to the start of the list, to be processed in the next iteration
         for count, email in enumerate(email_iterator, start=1):
             try:

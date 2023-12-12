@@ -1,6 +1,6 @@
 import imaplib
 import email
-from typing import List, Optional, Literal, Union, Type, Any, Protocol, TypeVar, Generic
+from typing import List, Optional, Literal, Union, Type, Any, Protocol, TypeVar, Generic, AsyncGenerator, Tuple
 
 from email.message import EmailMessage as BaseEmailMessage
 from msgraph.generated.models.message import Message as AzureEmailMessage
@@ -15,8 +15,9 @@ from datetime import datetime
 import random
 from faker import Faker
 from training.dummy_emails import examples
-import requests
 import asyncio
+
+from realtime_status_logger import live_logger
 
 # Helper functions
 def subject_reveals_email_is_failed(text: str) -> bool:
@@ -413,10 +414,11 @@ class EmailClientAzure:
         return True
     
     async def read_emails_and_delete_spam(self, n:int, most_recent_first: bool = True, unseen_only: bool = False):
-        return await self.get_emails(n=n, unseen_only=unseen_only, most_recent_first=most_recent_first, remove_undelivered=True, set_to_read=False)
+        async for emails in self.fetch_emails_until_n_generator(n=n, unseen_only=unseen_only, most_recent_first=most_recent_first, remove_undelivered=True, set_to_read=False):
+            pass
 
     # Note: cannot sort by date recieved AND filter by name. Only one or the other.
-    async def get_emails(self, 
+    async def fetch_emails_until_n_generator(self, 
         # Below are the parameters for the api call
         # sender_email: Optional[str] = None,
         n: int = 5,
@@ -428,7 +430,7 @@ class EmailClientAzure:
         # Below are the parameters for post-processingww
         remove_undelivered: bool = True,
         set_to_read: bool = True,
-    ) -> List[EmailMessageAdapted]:
+    ) -> AsyncGenerator[List[EmailMessageAdapted], None]:
         """
         Retrieves a list of email messages from the user's mailbox.
 
@@ -452,125 +454,108 @@ class EmailClientAzure:
         API Reference: https://learn.microsoft.com/en-us/graph/api/message-get?view=graph-rest-1.0&tabs=python
         and: https://learn.microsoft.com/en-us/graph/query-parameters?tabs=http
         """
-        try:
-            MAX_MSG_PER_REQUEST = 50
-
-            folder_filters = [f"parentFolderId eq '{folder_name}'" for folder_name in folders]
-            folder_filter_string = " or ".join(folder_filters)
-
-            query_params = {
-                "top": min(n, MAX_MSG_PER_REQUEST),  # The maximum number of messages to return
-                "select": ['id', 'subject', 'sender', 'toRecipients', 'receivedDateTime', 'uniqueBody', 'isRead'],  # uniqueBody is the body of the email without any reply/forward history
-                "filter": folder_filter_string,
-            }
-
-            # if sender_email:
-            #     query_params["filter"] = f'from/emailAddress/address eq \'{sender_email}\''
-
-            # if remove_undelivered:
-            #     if query_params["filter"]:
-            #         query_params["filter"] += ' and '
-
-            #     # check if subject contains 'Undeliverable:'
-            #     query_params["filter"] += 'not startswith(subject, \'Undeliverable:\')'
-
-            # Using filter and orderby in the same query
-            # When using $filter and $orderby in the same query to get messages, make sure to specify properties in the following ways:
-
-            # Properties that appear in $orderby must also appear in $filter.
-            # Properties that appear in $orderby are in the same order as in $filter.
-            # Properties that are present in $orderby appear in $filter before any properties that aren't.
-            # Failing to do this results in the following error:
-
-            # Error code: InefficientFilter
-            # Error message: The restriction or sort order is too complex for this operation.
-
-            if most_recent_first:
-                query_params["orderby"] = ['receivedDateTime desc']
-            else:
-                query_params["orderby"] = ['receivedDateTime asc']
-
-            # Take care if chaining filters in the future!
-            if unseen_only:
-                query_params["filter"] += ' and isRead eq false'
-
-            config = MessagesRequestBuilder.MessagesRequestBuilderGetRequestConfiguration(
-                query_parameters = MessagesRequestBuilder.MessagesRequestBuilderGetQueryParameters(**query_params),
-                headers={
-                    "Prefer": "outlook.body-content-type=\"text\"",
-                },
-            )
-            message_list = []
-
-            # Do the first call with our config. Further pages will be retrieved in the loop below.
-            messages = await self.client.me.messages.get(config)
-            if messages:
-                if messages.value:
-                    print(f"Retrieved {len(messages.value)} emails from the server")
-                    message_list.extend(messages.value)
-
-                    next_link = messages.odata_next_link
-
-                    if next_link: # If Azure API returns a link to the next page of results - means there are more emails to retrieve.
-                        # Create a safe loop for the next n//MAX_MSG_PER_REQUEST requests. This will also handle the case if there are no more emails to retrieve (n_loops will be 0)
-                        n_loops = (n-len(message_list))//MAX_MSG_PER_REQUEST
-                        print(f"Will retrieve {n_loops} more batches of {MAX_MSG_PER_REQUEST} emails")
-                        
-                        for _ in range(n_loops):
-                            messages = await self.client.me.messages.with_url(next_link).get()  # Fetch the next page of results using the url provided in the previous response.
-                            if messages:
-                                if messages.value:
-                                    message_list.extend(messages.value)
-                                    next_link = messages.odata_next_link
-
-                                    if not next_link:
-                                        print(f"Retrieval cut short as all emails have been read. Total of {len(message_list)} emails retrieved, even though {n} were requested.")
-                                        break
-
-            if message_list is not None:
-
-                # To assemble the final list of messages
-                final_message_list: List[EmailMessageAdapted] = []
-
-                # To store id's of emails to delete and mark as read
-                to_delete, to_mark_as_read = [], []
-
-                for message in message_list:
-                    
-                    # Handles the case of frequent exchange underliverable emails.
-                    if remove_undelivered:
-                        if message.subject:
-                            # Delete message if subject reveals it is an undeliverable email OR mark as read otherwise
-                            if subject_reveals_email_is_failed(message.subject):
-                                to_delete.append(message.id)
-                            else:
-                                final_message_list.append(EmailMessageAdapted(message))
-                                if set_to_read:
-                                    to_mark_as_read.append(message.id)
-
-                    else:
-                        final_message_list.append(EmailMessageAdapted(message))
-                        if set_to_read:
-                            to_mark_as_read.append(message.id)
-
-                if remove_undelivered:
-                    print(f"Excluded and deleted {len(to_delete)} undeliverable emails")
-
-                print(f"Returning a total of {len(final_message_list)}/{len(message_list)} emails that were fetched from the server.")
-
-                # Launch a background task to delete and mark emails as read, if necessary
-                if set_to_read:
-                    asyncio.create_task(self.set_email_seen_status(to_mark_as_read))
-                if remove_undelivered:
-                    asyncio.create_task(self.delete_emails(to_delete))
-
-                return final_message_list
         
-            print("no messages found")
-            return []
+        MAX_MSG_PER_REQUEST = 50
 
-        except Exception as e:
-            raise Exception(f"Error: Could not read emails - {e}")
+        folder_filters = [f"parentFolderId eq '{folder_name}'" for folder_name in folders]
+        folder_filter_string = " or ".join(folder_filters)
+
+        query_params = {
+            "top": min(n, MAX_MSG_PER_REQUEST),  # The maximum number of messages to return
+            "select": ['id', 'subject', 'sender', 'toRecipients', 'receivedDateTime', 'uniqueBody', 'isRead'],  # uniqueBody is the body of the email without any reply/forward history
+            "filter": folder_filter_string,
+        }
+
+        if most_recent_first:
+            query_params["orderby"] = ['receivedDateTime desc']
+        else:
+            query_params["orderby"] = ['receivedDateTime asc']
+
+        # Take care if chaining filters in the future!
+        if unseen_only:
+            query_params["filter"] += ' and isRead eq false'
+
+        config = MessagesRequestBuilder.MessagesRequestBuilderGetRequestConfiguration(
+            query_parameters = MessagesRequestBuilder.MessagesRequestBuilderGetQueryParameters(**query_params),
+            headers={
+                "Prefer": "outlook.body-content-type=\"text\"",
+            },
+        )
+
+        def extract_final_message_list_and_launch_postprocessing(message_list: List[Message]) -> List[EmailMessageAdapted]:                                
+            if not message_list:
+                return []
+
+            # To assemble the final list of messages
+            final_message_list: List[EmailMessageAdapted] = []
+
+            # To store id's of emails to delete and mark as read
+            to_delete, to_mark_as_read = [], []
+
+            for message in message_list:
+                
+                # Handles the case of frequent exchange underliverable emails.
+                if remove_undelivered:
+                    if message.subject:
+                        # Delete message if subject reveals it is an undeliverable email OR mark as read otherwise
+                        if subject_reveals_email_is_failed(message.subject):
+                            to_delete.append(message.id)
+                        else:
+                            final_message_list.append(EmailMessageAdapted(message))
+                            if set_to_read:
+                                to_mark_as_read.append(message.id)
+
+                else:
+                    final_message_list.append(EmailMessageAdapted(message))
+                    if set_to_read:
+                        to_mark_as_read.append(message.id)
+
+            if remove_undelivered:
+                print(f"Excluded and deleted {len(to_delete)} undeliverable emails")
+                live_logger.report_to_channel("info", f"Excluded and deleted {len(to_delete)} undeliverable emails")
+
+            print(f"Returning a total of {len(final_message_list)}/{len(message_list)} emails that were fetched from the server.")
+            live_logger.report_to_channel("info", f"Returning a total of {len(final_message_list)}/{len(message_list)} emails that were fetched from the server.")
+
+            # Launch a background task to delete and mark emails as read, if necessary
+            if set_to_read:
+                asyncio.create_task(self.set_email_seen_status(to_mark_as_read))
+            if remove_undelivered:
+                asyncio.create_task(self.delete_emails(to_delete))
+
+            return final_message_list
+
+        # Do the first call with our config. Further pages will be retrieved in the loop below.
+        messages = await self.client.me.messages.get(config)
+        yielded_messages_count = 0
+        if messages:
+            if messages.value:
+
+                next_link = messages.odata_next_link
+                if not next_link:
+                    live_logger.report_to_channel("info", f"Retrieval cut short as all emails have been read. Total of {len(messages.value)} emails retrieved, even though {n} were requested.")
+                    yield extract_final_message_list_and_launch_postprocessing(messages.value)
+
+                yielded_messages_count += len(messages.value)
+                yield extract_final_message_list_and_launch_postprocessing(messages.value)
+
+                if next_link: # If Azure API returns a link to the next page of results - means there are more emails to retrieve.
+                    # Create a safe loop for the next n//MAX_MSG_PER_REQUEST requests. This will also handle the case if there are no more emails to retrieve (n_loops will be 0)
+                    n_loops = (n-yielded_messages_count)//MAX_MSG_PER_REQUEST
+                    print(f"Will retrieve {n_loops} more batches of {MAX_MSG_PER_REQUEST} emails")
+                    
+                    for _ in range(n_loops):
+                        messages = await self.client.me.messages.with_url(next_link).get()  # Fetch the next page of results using the url provided in the previous response.
+                        if messages:
+                            if messages.value:
+
+                                next_link = messages.odata_next_link
+                                yielded_messages_count += len(messages.value)
+                                yield extract_final_message_list_and_launch_postprocessing(messages.value)
+
+                                if not next_link:
+                                    live_logger.report_to_channel("info", f"Retrieval cut short as all emails have been read. Total of {yielded_messages_count} emails retrieved, even though {n} were requested.")
+                                    break
 
     async def get_email_attachments(self, message_id: str) -> Union[list, str]:
         """
@@ -667,3 +652,28 @@ class EmailClientAzure:
             return "Email deleted successfully"
         except Exception as e:
             return str(e)
+
+
+## Extra azure info
+
+
+# if sender_email:
+#     query_params["filter"] = f'from/emailAddress/address eq \'{sender_email}\''
+
+# if remove_undelivered:
+#     if query_params["filter"]:
+#         query_params["filter"] += ' and '
+
+#     # check if subject contains 'Undeliverable:'
+#     query_params["filter"] += 'not startswith(subject, \'Undeliverable:\')'
+
+# Using filter and orderby in the same query
+# When using $filter and $orderby in the same query to get messages, make sure to specify properties in the following ways:
+
+# Properties that appear in $orderby must also appear in $filter.
+# Properties that appear in $orderby are in the same order as in $filter.
+# Properties that are present in $orderby appear in $filter before any properties that aren't.
+# Failing to do this results in the following error:
+
+# Error code: InefficientFilter
+# Error message: The restriction or sort order is too complex for this operation.

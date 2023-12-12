@@ -30,3 +30,36 @@
 # Think about how to handle updates - if a ship or cargo is updated, then what? Do we need to update the pairs? Or just leave them as is?
 
 # Think about how to handle duplicates - if a ship or cargo is duplicated, then what? Do we need to update the pairs? Or just leave them as is?
+
+
+
+# Producer 1
+# 1. Reads all UNSEEN emails from mailbox, setting them as read, and adding the relevant AdaptedEmailMessage object to the queue_read_emails_to_db_with_id queue for further processing.
+
+mQ_1 = asyncio.Queue(maxsize=10)
+
+# Consumer 1
+# 1. Takes out AdaptedEmailMessage objects from the queue_read_emails_to_db_with_id queue
+# 2. Adds the relevant AdaptedEmailMessage object to the database, after checking all relevant fields to see if it already exists
+
+# Producer 2
+# 1. Takes out email objects from the database (via Change Streams) and places them into MQ 2, from most recent and that have not yet been processed by the consumer 2
+
+mQ_2 = asyncio.Queue(maxsize=10)
+
+# Consumer 2
+# 1. Takes out email objects from MQ 2, and processes them via GPT-3.5
+## IMPORTANT - include duplicate checker, on an object level too - and email might be different, but the ship or cargo might be the same. So check for duplicates on the object level too.
+# 2. Adds the relevant entries to the database, after checking all relevant fields to see if it already exists
+
+# Endless process 1 - Match ships to cargos, and update DB state
+# 1. Takes out Ships from database (Change Stream on Add To Ship?), that have no cargo pairs, and finds matching cargo for them. Update all relevant fields in the database.
+# Idea: Change Stream on new ship additions - and do the matching.
+
+# Producer 3 - Email ships that just got matched (Consumer 3)
+# Idea: Change Stream on Cargo Matches being added to a Ship - then add objects with all data to the Mail Sending queue (MQ3).
+
+mq_3 = asyncio.Queue(maxsize=10)
+
+# Consumer 3
+# 1. Takes out email objects from MQ 3, and sends them via email to the relevant email address (i.e. the ship owner's email address), ship and cargo objects.
