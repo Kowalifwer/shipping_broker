@@ -83,6 +83,9 @@ class CustomGraphServiceClient(GraphServiceClient):
         total = 0
         operation_name = ""
         batches = [batch_requests[i:i + BATCH_REQUEST_LIMIT] for i in range(0, len(batch_requests), BATCH_REQUEST_LIMIT)]
+        if not batches:
+            return {"status": 400, "body": "Batch request is empty. Not sending."}
+
         if batches:
             if batches[0]:
                 operation_name = batches[0][0]["method"]

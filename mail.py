@@ -19,6 +19,9 @@ import asyncio
 
 from realtime_status_logger import live_logger
 
+# Constants
+MAX_MSG_PER_REQUEST = 50 # Controls the number of messages requested from the Azure Api, per request. Not recommended to go over 100.
+
 # Helper functions
 def subject_reveals_email_is_failed(text: str) -> bool:
     """Returns True if the subject reveals that the email is an undeliverable email, False otherwise."""
@@ -374,6 +377,9 @@ class EmailClientAzure:
 
     async def set_email_seen_status(self, email_ids: List[str], set_to_read: bool = True) -> bool:
 
+        if not email_ids:
+            return True
+
         batch_requests = []
         status = "true" if set_to_read else "false"
 
@@ -397,6 +403,8 @@ class EmailClientAzure:
         return True
 
     async def delete_emails(self, email_ids: List[str]) -> bool:
+        if not email_ids:
+            return True
 
         batch_requests = []
 
@@ -414,14 +422,15 @@ class EmailClientAzure:
         return True
     
     async def read_emails_and_delete_spam(self, n:int, most_recent_first: bool = True, unseen_only: bool = False):
-        async for emails in self.fetch_emails_until_n_generator(n=n, unseen_only=unseen_only, most_recent_first=most_recent_first, remove_undelivered=True, set_to_read=False):
+        async for emails in self.endless_email_read_generator(n=n, unseen_only=unseen_only, most_recent_first=most_recent_first, remove_undelivered=True, set_to_read=False):
             pass
 
     # Note: cannot sort by date recieved AND filter by name. Only one or the other.
-    async def fetch_emails_until_n_generator(self, 
+    async def endless_email_read_generator(self, 
         # Below are the parameters for the api call
         # sender_email: Optional[str] = None,
         n: int = 9999,
+        batch_size: int = MAX_MSG_PER_REQUEST,
         unseen_only: bool = True,
         most_recent_first: bool = True,
 
@@ -432,12 +441,14 @@ class EmailClientAzure:
         set_to_read: bool = True,
     ) -> AsyncGenerator[List[EmailMessageAdapted], None]:
         """
-        Retrieves a list of email messages from the user's mailbox.
+        Endlessly generates batches(lists) of size {batch-size} of email messages from the user's mailbox.
 
         IF remove_undelivered is True, then those emails will be deleted and not included in the return list.
 
         Args:
-            n: The maximum number of emails to retrieve. Default is 5. Note that the actual number of emails returned may be less than n, depending on the number of emails in the mailbox AND other settings.
+            n: The maximum number of emails to retrieve. Generator will stop yielding either when n emails have been retrieved, or when there are no more emails to retrieve.
+            batch_size: The number of emails to retrieve per request. Default is MAX_MSG_PER_REQUEST.
+
             unseen_only: If True, only unseen/unread emails will be retrieved. Default is True.
             most_recent_first: If True, the most recent emails will be retrieved first. set to False for oldest first. Default is True.
             folders: A list of folders to be searched in. Default is ["inbox", "junkemail"].
@@ -454,14 +465,12 @@ class EmailClientAzure:
         API Reference: https://learn.microsoft.com/en-us/graph/api/message-get?view=graph-rest-1.0&tabs=python
         and: https://learn.microsoft.com/en-us/graph/query-parameters?tabs=http
         """
-        
-        MAX_MSG_PER_REQUEST = 50
 
         folder_filters = [f"parentFolderId eq '{folder_name}'" for folder_name in folders]
         folder_filter_string = " or ".join(folder_filters)
 
         query_params = {
-            "top": min(n, MAX_MSG_PER_REQUEST),  # The maximum number of messages to return
+            "top": min(n, batch_size),  # The maximum number of messages to return
             "select": ['id', 'subject', 'sender', 'toRecipients', 'receivedDateTime', 'uniqueBody', 'isRead'],  # uniqueBody is the body of the email without any reply/forward history
             "filter": folder_filter_string,
         }
@@ -540,9 +549,9 @@ class EmailClientAzure:
                 yield extract_final_message_list_and_launch_postprocessing(messages.value)
 
                 if next_link: # If Azure API returns a link to the next page of results - means there are more emails to retrieve.
-                    # Create a safe loop for the next n//MAX_MSG_PER_REQUEST requests. This will also handle the case if there are no more emails to retrieve (n_loops will be 0)
-                    n_loops = (n-yielded_messages_count)//MAX_MSG_PER_REQUEST
-                    print(f"Will retrieve {n_loops} more batches of {MAX_MSG_PER_REQUEST} emails")
+                    # Create a safe loop for the next n//batch_size requests. This will also handle the case if there are no more emails to retrieve (n_loops will be 0)
+                    n_loops = (n-yielded_messages_count)//batch_size
+                    print(f"Will retrieve {n_loops} more batches of {batch_size} emails")
                     
                     for _ in range(n_loops):
                         messages = await self.client.me.messages.with_url(next_link).get()  # Fetch the next page of results using the url provided in the previous response.
@@ -551,7 +560,7 @@ class EmailClientAzure:
 
                                 next_link = messages.odata_next_link
                                 yielded_messages_count += len(messages.value)
-                                yield [EmailMessageAdapted(message) for message in messages.value]
+                                yield extract_final_message_list_and_launch_postprocessing(messages.value)
 
                                 if not next_link:
                                     live_logger.report_to_channel("info", f"Retrieval cut short as all emails have been read. Total of {yielded_messages_count} emails retrieved, even though {n} were requested.")

@@ -18,6 +18,10 @@ from fastapi.templating import Jinja2Templates
 import openai
 import mail_init
 
+#uvicorn main:app --reload
+#https://admin.exchange.microsoft.com/#/settings
+#https://admin.microsoft.com/#/users/:/UserDetails/6943c12b-f238-483e-af43-8e4cf25ba599/Mail
+
 # Get credentials from config.cfg
 config = configparser.ConfigParser()
 config.read('config.cfg')
@@ -34,10 +38,6 @@ from realtime_status_logger import router, live_logger
 
 # Add the router to the app, to also serve endpoints from the files below
 app.include_router(router)
-
-#uvicorn main:app --reload
-#https://admin.exchange.microsoft.com/#/settings
-#https://admin.microsoft.com/#/users/:/UserDetails/6943c12b-f238-483e-af43-8e4cf25ba599/Mail
 
 # Set your Outlook email and password (or App Password if 2FA is enabled)
 email_address = config['imap']['email']
@@ -188,68 +188,78 @@ async def launch_backgrond_task(background_tasks: BackgroundTasks, action: Liter
 
 
 from typing import Iterator
-async def mailbox_read_producer(event: asyncio.Event, queue: asyncio.Queue):
+async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     # 1. Read all UNSEEN emails from the mailbox, every 5 seconds, or if email queue is processed.
-    emails: List[EmailMessageAdapted] = []
-    email_iterator: Iterator[EmailMessageAdapted] = iter(emails)
-    attempt_interval = 5
-    total_emails_to_read = 1000
 
-    while not event.is_set():
+    attempt_interval = 5 # seconds
 
-        
-        if len(list(email_iterator)) == 0: # IF first iteration, OR the iterator is exhausted,- then fetch new emails.
-            async for email_batch in email_client.fetch_emails_until_n_generator(
-                n=total_emails_to_read,
-                most_recent_first=True,
-                unseen_only=False,
-                set_to_read=False,
-                remove_undelivered=True
-            ):
-                emails = email_batch
+    while not stoppage_event.is_set():
 
-        # Occurs if emails carried over from previous iteration, due to queue being full - so wait 5 seconds before trying again.
-        else: 
-            await asyncio.sleep(attempt_interval)
-        
-        if isinstance(emails, str):
-            live_logger.report_to_channel("error", f"Error reading emails from mailbox. {emails}. Closing producer.")
-            break
+        email_generator = email_client.endless_email_read_generator(
+            n=9999,
+            batch_size=4,
 
-        if isinstance(emails, list) and not emails:
-            live_logger.report_to_channel("info", f"No emails found in mailbox.")
-            break
-        
-        email_iterator = iter(emails) # needed as a way to track exhaustion of iterator, and to add remaining emails to the start of the list, to be processed in the next iteration
-        for count, email in enumerate(email_iterator, start=1):
-            try:
-                if event.is_set(): # if producer got stopped in the middle of processing emails, then we must unset the read flag for the remaining emails
-                    ##for remaining emails, unset the read flag
-                    # email_ids = [email.id] + [email.id for email in email_iterator]
-                    # asyncio.create_task(email_client.set_email_seen_status(email_ids, False))
+            most_recent_first=True,
+            unseen_only=False,
+            set_to_read=False,
+            remove_undelivered=True
+        )
+
+        end_email_fetching: bool = False # This flag will be checked at the end of processing the email_batch, to decide if the generator should be broken out of.
+
+        async for email_batch in email_generator:
+            emails = email_batch
+            batch_processed = False # This flag will indicate when it is time to fetch the next batch of emails
+
+            while not batch_processed: # Will continuosuly try to add emails to the queue, until the batch is processed.
+
+                if isinstance(emails, str):
+                    live_logger.report_to_channel("error", f"Error reading emails from mailbox. {emails}. Closing producer.")
                     break
 
-                queue.put_nowait(email)
-                live_logger.report_to_channel("info", f"Email {count} placed in queue.")
+                if isinstance(emails, list) and not emails:
+                    live_logger.report_to_channel("info", f"No emails found in mailbox.")
+                    break
+                
+                email_iterator = iter(emails) # needed as a way to track exhaustion of iterator and thus the emails, and to add remaining emails to the start of the list, to be processed in the next iteration
 
-            except asyncio.QueueFull:
-                live_logger.report_to_channel("warning", f"{queue.qsize()}/{queue.maxsize} emails in messenger queue - waiting for queue to free up space.")
-                emails = [email] + emails[count:] # add the remaining emails to the start of the list, to be processed in the next iteration
-                break
+                for count, email in enumerate(email_iterator, start=1):
+                    try:
+                        if stoppage_event.is_set(): # if producer got stopped in the middle of processing emails, then we must unset the read flag for the remaining emails
+                            ##for remaining emails, unset the read flag
+                            # email_ids = [email.id] + [email.id for email in email_iterator]
+                            # asyncio.create_task(email_client.set_email_seen_status(email_ids, False))
+                            live_logger.report_to_channel("warning", f"Failed to add whole email batch to queue. Producer closing before more space free'd up. Cleanup in progress.")
+                            end_email_fetching = True # Prevent the next batch from being fetched from the generator for loop
+                            batch_processed = True # Prevent the next batch from being processed
+                            break
 
-        # If emails got exhausted (also cover the edge case process getting stopped, on the very LAST email, causing exhaustion but not success of whole operation)
-        if len(list(email_iterator)) == 0 and not event.is_set():
-            live_logger.report_to_channel("info", f"Email batch of {email_batch_size} added to MQ succesfully.")
-            await asyncio.sleep(2)
-        else:
-            live_logger.report_to_channel("warning", f"Failed to add {email_batch_size} size batch to queue. Producer closing before more space free'd up.")
+                        queue.put_nowait(email)
+                        live_logger.report_to_channel("info", f"Email {count} placed in queue.")
 
-    print("producer finished")
+                    except asyncio.QueueFull:
+                        emails = [email] + emails[count:] # add the remaining emails to the start of the list, to be processed in the next iteration
+                        live_logger.report_to_channel("warning", f"{queue.qsize()}/{queue.maxsize} emails in messenger queue - waiting for queue to free up space. Emails waiting to be added by producer: {len(emails)}")
+                        await asyncio.sleep(attempt_interval)
+                        break
+
+                # If emails got exhausted (also cover the edge case process getting stopped, on the very LAST email, causing exhaustion but not success of whole operation)
+                if len(list(email_iterator)) == 0 and not stoppage_event.is_set():
+                    live_logger.report_to_channel("info", f"Full email batch added to MQ succesfully.")
+                    batch_processed = True
+
+                    await asyncio.sleep(2)
+
+            if end_email_fetching: # if producer got stopped - we must break out of the generator for loop
+                print("breaking out of generator for loop - producer stop command received")
+                break      
+
+    print("producer task ended completely")
 
 
-async def mailbox_read_consumer(event: asyncio.Event, queue: asyncio.Queue):
+async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     # 2. Process all emails in the queue, every 10 seconds, or if email queue is processed.
-    while not event.is_set():
+    while not stoppage_event.is_set():
         email = await queue.get() # get email from queue
         print("consumer fetched email from queue")
         await process_email_dummy(email)
