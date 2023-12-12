@@ -1,0 +1,25 @@
+version: '3.9'
+services:
+  mongo:
+    image: mongo:latest
+    container_name: mongo
+    restart: always
+    volumes:
+      # - ./tmp/db:/data/db
+      - ./mongo-setup/import.js:/docker-entrypoint-initdb.d/import.js
+    ports:
+      - 27017:27017
+    command: ["--replSet", "dbrs", "--bind_ip_all"]
+  
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile  # The path to your Dockerfile for FastAPI (if you have one)
+    container_name: fastapi
+    restart: always
+    volumes:
+      - .:/app  # Assuming your FastAPI code is in base directory
+    ports:
+      - "8000:80"
+    depends_on:
+      - mongo
