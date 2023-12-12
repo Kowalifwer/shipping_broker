@@ -60,11 +60,13 @@ async def live_log(request: Request):
     # Render the template with the provided data
     return templates.TemplateResponse("live_logger.html", {"request": request, **data})
 
-async def shutdown_handler():
+def shutdown_handler():
     # Shut off any running producer/consumer tasks
     for tasks in MQ_HANDLER.values():
         tasks[1].set()
         print(f"set shutdown event for task {tasks[0].__name__}")
+
+app.state.shutdown_handler = shutdown_handler
 
 if __name__ == "__main__":
 

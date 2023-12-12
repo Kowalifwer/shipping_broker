@@ -22,7 +22,7 @@ if isinstance(azure_connection, str):
 email_client = EmailClientAzure(azure_connection)
 
 # Connect to MongoDB
-db_hanlder = AsyncIOMotorClient("mongodb://localhost:27017/")
+db_hanlder = AsyncIOMotorClient(config['mongo']['connection_local'])
 # db_hanlder = AsyncIOMotorClient(config['mongo']['connection_string'])
 db = db_hanlder["broker"]
 

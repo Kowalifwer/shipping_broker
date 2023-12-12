@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, Callable, Coroutine, Any, Literal, List
+from typing import Dict, Tuple, Callable, Coroutine, Any, Literal, List, Union, Optional
 import asyncio
 
 from pymongo import MongoClient
@@ -9,7 +9,7 @@ from realtime_status_logger import live_logger
 from mail import EmailMessageAdapted
 from db import MongoEmail
 
-async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
+async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted]):
     # 1. Read all UNSEEN emails from the mailbox, every 5 seconds, or if email queue is processed.
 
     attempt_interval = 5 # seconds
@@ -21,82 +21,93 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
             batch_size=50,
 
             most_recent_first=True,
-            unseen_only=False,
+            unseen_only=True,
             set_to_read=False,
             remove_undelivered=True
         )
 
         async for email_batch in email_generator:
-            emails = email_batch
             batch_processed = False # This flag will indicate when it is time to fetch the next batch of emails
 
             while not batch_processed: # Will continuosuly try to add emails to the queue, until the batch is processed.
 
-                if isinstance(emails, str):
-                    live_logger.report_to_channel("error", f"Error reading emails from mailbox. {emails}. Closing producer.")
+                if isinstance(email_batch, str):
+                    live_logger.report_to_channel("error", f"Error reading emails from mailbox. Closing producer.")
                     break
 
-                if isinstance(emails, list) and not emails:
+                if isinstance(email_batch, list) and not email_batch:
                     live_logger.report_to_channel("info", f"No emails found in mailbox.")
                     break
                 
-                email_iterator = iter(emails) # needed as a way to track exhaustion of iterator and thus the emails, and to add remaining emails to the start of the list, to be processed in the next iteration
+                for count, email in enumerate(email_batch, start=1):
 
-                for count, email in enumerate(email_iterator, start=1):
-                    try:
-                        if stoppage_event.is_set(): # if producer got stopped in the middle of processing emails, then we must unset the read flag for the remaining emails
-                            ##for remaining emails, unset the read flag
-                            # email_ids = [email.id] + [email.id for email in email_iterator]
-                            # asyncio.create_task(email_client.set_email_seen_status(email_ids, False))
-                            live_logger.report_to_channel("warning", f"Failed to add whole email batch to queue. Producer closing before more space free'd up. Cleanup in progress.")
-                            live_logger.report_to_channel("info", f"Producer closed verified.")
-                            return
+                    while True: # Will continuously try to add emails to the queue, until the queue has space. Make sure to break out of this loop when the email is added to the queue.
+                        try:
+                            if stoppage_event.is_set(): # if producer got stopped in the middle of processing emails, then we must unset the read flag for the remaining emails
+                                ##for remaining emails, unset the read flag
+                                # email_ids = [email.id] + [email.id for email in emails[count:]]
+                                # asyncio.create_task(email_client.set_email_seen_status(email_ids, False))
+                                live_logger.report_to_channel("warning", f"Failed to add whole email batch to queue. Producer closing before more space free'd up. Cleanup in progress.")
+                                live_logger.report_to_channel("info", f"Producer closed verified.")
+                                return
 
-                        queue.put_nowait(email)
-                        live_logger.report_to_channel("info", f"Email {count} placed in queue.")
+                            queue.put_nowait(email)
+                            live_logger.report_to_channel("info", f"Email {count} placed in queue.")
+                            break # break out of the while loop
 
-                    except asyncio.QueueFull:
-                        emails = [email] + emails[count:] # add the remaining emails to the start of the list, to be processed in the next iteration
-                        live_logger.report_to_channel("warning", f"{queue.qsize()}/{queue.maxsize} emails in messenger queue - waiting for queue to free up space. Emails waiting to be added by producer: {len(emails)}")
-                        await asyncio.sleep(attempt_interval)
-                        break
+                        except asyncio.QueueFull:
+                            live_logger.report_to_channel("warning", f"{queue.qsize()}/{queue.maxsize} emails in messenger queue - waiting for queue to free up space. Emails waiting to be added by producer: {len(emails)}")
+                            await asyncio.sleep(attempt_interval)
 
-                # If emails got exhausted (also cover the edge case process getting stopped, on the very LAST email, causing exhaustion but not success of whole operation)
-                if len(list(email_iterator)) == 0 and not stoppage_event.is_set():
-                    live_logger.report_to_channel("info", f"Full email batch added to MQ succesfully.")
-                    batch_processed = True
+                # If full email batch was added to queue, then break out of the while loop
+                if stoppage_event.is_set():
+                    live_logger.report_to_channel("warning", f"producer closed verified (after adding a full batch of emails to queue)")
+                    return
 
-                    await asyncio.sleep(0.2)
+                live_logger.report_to_channel("info", f"Full email batch added to MQ succesfully.")
+                batch_processed = True
+
+                await asyncio.sleep(0.2)
 
     live_logger.report_to_channel("info", f"Producer closed verified.")
 
-
-async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
+async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue_to_fetch_from: asyncio.Queue[EmailMessageAdapted], queue_to_add_to: asyncio.Queue[str]):
     # 2. Process all emails in the queue, every 10 seconds, or if email queue is processed.
     while not stoppage_event.is_set():
         try:
-            email = queue.get_nowait() # get email from queue
+            email = queue_to_fetch_from.get_nowait() # get email from queue
         except asyncio.QueueEmpty:
             await asyncio.sleep(1)
             continue
 
         email_added = await add_email_to_db(email)
-
-        if not email_added:
-            live_logger.report_to_channel("warning", f"Email with id {email.id} already in database. Ignoring.")
+        if email_added == False:
             continue
-        else:
-            live_logger.report_to_channel("info", f"Email with id {email.id} added to database.")
-    
+        
+        # TODO: This currently also acts as a producer (until it is decided what the final approach will be) which can cause bottlenecks. 
+        # Refer to: https://github.com/Kowalifwer/shipping_broker/issues/2
+        while True:
+            try:
+                queue_to_add_to.put_nowait(str(email_added))
+                live_logger.report_to_channel("info", f"Email with id {email.id} added to queue.")
+                break # break out of the while loop
+            except asyncio.QueueFull:
+                live_logger.report_to_channel("warning", f"{queue_to_add_to.qsize()}/{queue_to_add_to.maxsize} email id's in messenger queue - waiting for queue to free up space.")
+                await asyncio.sleep(5)
+                continue
+
     live_logger.report_to_channel("info", f"Consumer closed verified.")
 
-async def queue_capacity_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
+async def queue_capacity_producer(stoppage_event: asyncio.Event, *queues: asyncio.Queue):
     # 3. Check the queue capacity every 5 seconds, and report to the live logger
     from uuid import uuid4
-    q_id = uuid4()
+    q_ids = [str(uuid4()) for _ in queues]
+
     while not stoppage_event.is_set():
+        for i, queue in enumerate(queues):
+            live_logger.report_to_channel("capacities", f"{queue.qsize()},{queue.maxsize},{q_ids[i]}", False)
+
         await asyncio.sleep(0.2)
-        live_logger.report_to_channel("capacities", f"{queue.qsize()},{queue.maxsize},{q_id}", False)
     
     live_logger.report_to_channel("info", f"Queue capacity producer closed verified.")
 
@@ -109,32 +120,8 @@ async def flush_queue(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     
     live_logger.report_to_channel("info", f"Queue flushed.")
 
-async def db_listens_for_new_emails_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
-    attempt_interval = 5 # seconds
-
-    # 4. Listen for new emails being added to the database, and add them to the queue
-    collection = db["emails"]
-    async with collection.watch() as stream:
-        async for change in stream:
-            retry = True
-            while retry:
-                if change["operationType"] == "insert":
-                    db_object = change["fullDocument"]
-                    email = MongoEmail(**db_object)
-                    try:
-                        queue.put_nowait(email)
-                        live_logger.report_to_channel("info", f"Email with id {email.id} added to queue.")
-                        break # break out of the while loop
-                    except asyncio.QueueFull:
-                        live_logger.report_to_channel("warning", f"{queue.qsize()}/{queue.maxsize} emails in messenger queue - waiting for queue to free up space.")
-                        await asyncio.sleep(attempt_interval)
-                    finally:
-                        if stoppage_event.is_set():
-                            live_logger.report_to_channel("info", f"Producer closed verified.")
-                            return
-
 MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=500) # A maximum buffer of 10 emails
-MQ_GPT_EMAIL_TO_DB = asyncio.Queue(maxsize=150) # A maximum buffer of 10 emails
+MQ_GPT_EMAIL_TO_DB = asyncio.Queue(maxsize=500) # A maximum buffer of 10 emails
 
 # Please respect the complex signature of this dictionary. You have to create your async functions with the specified signature, and add them to the dictionary below.
 MQ_HANDLER: Dict[str, Tuple[
@@ -143,17 +130,17 @@ MQ_HANDLER: Dict[str, Tuple[
         asyncio.Queue]
     ] = {
     "mailbox_read_producer": (mailbox_read_producer, asyncio.Event(), MQ_MAILBOX),   
-    "mailbox_read_consumer": (mailbox_read_consumer, asyncio.Event(), MQ_MAILBOX),
-
-    "db_listens_for_new_emails_producer": (db_listens_for_new_emails_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
+    "mailbox_read_consumer": (mailbox_read_consumer, asyncio.Event(), MQ_MAILBOX, MQ_GPT_EMAIL_TO_DB), # type: ignore - temporary due to https://github.com/Kowalifwer/shipping_broker/issues/2
 
 
+
+    # "db_listens_for_new_emails_producer": (db_listens_for_new_emails_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
     # "gpt_email_producer": (gpt_email_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
     # "gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
 
 
     # temporary helper methods for testing.
-    "queue_capacity_producer": (queue_capacity_producer, asyncio.Event(), MQ_MAILBOX),
+    "queue_capacity_producer": (queue_capacity_producer, asyncio.Event(), MQ_MAILBOX, MQ_GPT_EMAIL_TO_DB),
     "flush_queue_producer": (flush_queue, asyncio.Event(), MQ_MAILBOX),
 }
 """
@@ -177,7 +164,7 @@ def setup_to_frontend_template_data() -> List[Dict[str, str]]:
         })
     return buttons
 
-async def add_email_to_db(email_message: EmailMessageAdapted) -> bool:
+async def add_email_to_db(email_message: EmailMessageAdapted) -> Union[str, bool]:
     """Add email to database, if it doesn't already exist. Return True if added, False if already exists."""
 
     try:
@@ -196,6 +183,40 @@ async def add_email_to_db(email_message: EmailMessageAdapted) -> bool:
         # TODO: consider updating the fields on the duplicate object, such as date_recieved or store a counter of duplicates, if this into will be useful later.
         return False
 
-    await db["emails"].insert_one(email_message.mongo_db_object.model_dump())
+    inserted_result = await db["emails"].insert_one(email_message.mongo_db_object.model_dump())
 
-    return True
+    if not inserted_result.acknowledged:
+        live_logger.report_to_channel("error", f"Error adding email to database.")
+        return False
+
+    live_logger.report_to_channel("info", f"Email with id {email_message.id} added to database.")
+
+    return str(inserted_result.inserted_id)
+
+async def db_listens_for_new_emails_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
+    """Deprecated. Until it is decided what approach to take with issue #2, this function will not be used."""
+
+    attempt_interval = 5 # seconds
+
+    # 4. Listen for new emails being added to the database, and add them to the queue
+    collection = db["emails"]
+    async with collection.watch() as stream:
+        print("Listening for new emails in database.")
+        async for change in stream:
+            print(type(change))
+            retry = True
+            while retry:
+                if change["operationType"] == "insert":
+                    db_object = change["fullDocument"]
+                    email = MongoEmail(**db_object)
+                    try:
+                        queue.put_nowait(email)
+                        live_logger.report_to_channel("info", f"Email with id {email.id} added to queue.")
+                        break # break out of the while loop
+                    except asyncio.QueueFull:
+                        live_logger.report_to_channel("warning", f"{queue.qsize()}/{queue.maxsize} emails in messenger queue - waiting for queue to free up space.")
+                        await asyncio.sleep(attempt_interval)
+                    finally:
+                        if stoppage_event.is_set():
+                            live_logger.report_to_channel("info", f"Producer closed verified.")
+                            return

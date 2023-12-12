@@ -26,15 +26,17 @@ async def launch_backgrond_task(background_tasks: BackgroundTasks, action: Liter
     task_function = MQ_HANDLER[name][0]
     task_event = MQ_HANDLER[name][1]
     message_queue = MQ_HANDLER[name][2]
-
-    name = " ".join(name.split("_")[:-1]).capitalize()
+    remaining_args = MQ_HANDLER[name][3:]
 
     if action == "start":
         task_event.clear()
 
-        background_tasks.add_task(task_function, task_event, message_queue)
+        # background_tasks.add_task(task_function, task_event, message_queue)
+        background_tasks.add_task(*MQ_HANDLER[name])
     elif action == "end":
         task_event.set()
+    
+    name = " ".join(name.split("_")[:-1]).capitalize()
 
     live_logger.report_to_channel("info", f"Request to {action} '{task_type.capitalize()}' task '{name}' processed.")
 
