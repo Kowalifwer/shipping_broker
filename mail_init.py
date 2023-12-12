@@ -3,7 +3,6 @@ from oauthlib.oauth2 import BackendApplicationClient
 from requests.auth import HTTPBasicAuth
 import requests
 from msgraph import GraphServiceClient
-from azure.mail import EmailService
 from azure.core.credentials_async import AsyncTokenCredential
 from azure.core.credentials import AccessToken
 from typing import Any, Union, List, Optional

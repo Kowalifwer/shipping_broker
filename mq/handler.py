@@ -1,9 +1,13 @@
 from typing import Dict, Tuple, Callable, Coroutine, Any, Literal, List
 import asyncio
 
+from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure
+
 from setup import email_client, openai, db
 from realtime_status_logger import live_logger
 from mail import EmailMessageAdapted
+from db import MongoEmail
 
 async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     # 1. Read all UNSEEN emails from the mailbox, every 5 seconds, or if email queue is processed.
@@ -21,8 +25,6 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
             set_to_read=False,
             remove_undelivered=True
         )
-
-        end_email_fetching: bool = False # This flag will be checked at the end of processing the email_batch, to decide if the generator should be broken out of.
 
         async for email_batch in email_generator:
             emails = email_batch
@@ -47,9 +49,8 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
                             # email_ids = [email.id] + [email.id for email in email_iterator]
                             # asyncio.create_task(email_client.set_email_seen_status(email_ids, False))
                             live_logger.report_to_channel("warning", f"Failed to add whole email batch to queue. Producer closing before more space free'd up. Cleanup in progress.")
-                            end_email_fetching = True # Prevent the next batch from being fetched from the generator for loop
-                            batch_processed = True # Prevent the next batch from being processed
-                            break
+                            live_logger.report_to_channel("info", f"Producer closed verified.")
+                            return
 
                         queue.put_nowait(email)
                         live_logger.report_to_channel("info", f"Email {count} placed in queue.")
@@ -66,10 +67,6 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
                     batch_processed = True
 
                     await asyncio.sleep(0.2)
-
-            if end_email_fetching: # if producer got stopped - we must break out of the generator for loop
-                print("breaking out of generator for loop - producer stop command received")
-                break
 
     live_logger.report_to_channel("info", f"Producer closed verified.")
 
@@ -95,9 +92,11 @@ async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue: asyncio.Qu
 
 async def queue_capacity_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     # 3. Check the queue capacity every 5 seconds, and report to the live logger
+    from uuid import uuid4
+    q_id = uuid4()
     while not stoppage_event.is_set():
         await asyncio.sleep(0.2)
-        live_logger.report_to_channel("capacities", f"{queue.qsize()},{queue.maxsize}", add_timestamp=False)
+        live_logger.report_to_channel("capacities", f"{queue.qsize()},{queue.maxsize},{q_id}", False)
     
     live_logger.report_to_channel("info", f"Queue capacity producer closed verified.")
 
@@ -109,6 +108,30 @@ async def flush_queue(stoppage_event: asyncio.Event, queue: asyncio.Queue):
         await asyncio.sleep(0.1)
     
     live_logger.report_to_channel("info", f"Queue flushed.")
+
+async def db_listens_for_new_emails_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
+    attempt_interval = 5 # seconds
+
+    # 4. Listen for new emails being added to the database, and add them to the queue
+    collection = db["emails"]
+    async with collection.watch() as stream:
+        async for change in stream:
+            retry = True
+            while retry:
+                if change["operationType"] == "insert":
+                    db_object = change["fullDocument"]
+                    email = MongoEmail(**db_object)
+                    try:
+                        queue.put_nowait(email)
+                        live_logger.report_to_channel("info", f"Email with id {email.id} added to queue.")
+                        break # break out of the while loop
+                    except asyncio.QueueFull:
+                        live_logger.report_to_channel("warning", f"{queue.qsize()}/{queue.maxsize} emails in messenger queue - waiting for queue to free up space.")
+                        await asyncio.sleep(attempt_interval)
+                    finally:
+                        if stoppage_event.is_set():
+                            live_logger.report_to_channel("info", f"Producer closed verified.")
+                            return
 
 MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=500) # A maximum buffer of 10 emails
 MQ_GPT_EMAIL_TO_DB = asyncio.Queue(maxsize=150) # A maximum buffer of 10 emails
@@ -122,11 +145,16 @@ MQ_HANDLER: Dict[str, Tuple[
     "mailbox_read_producer": (mailbox_read_producer, asyncio.Event(), MQ_MAILBOX),   
     "mailbox_read_consumer": (mailbox_read_consumer, asyncio.Event(), MQ_MAILBOX),
 
-    "queue_capacity_producer": (queue_capacity_producer, asyncio.Event(), MQ_MAILBOX),
-    "flush_queue_producer": (flush_queue, asyncio.Event(), MQ_MAILBOX),
+    "db_listens_for_new_emails_producer": (db_listens_for_new_emails_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
+
 
     # "gpt_email_producer": (gpt_email_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
     # "gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
+
+
+    # temporary helper methods for testing.
+    "queue_capacity_producer": (queue_capacity_producer, asyncio.Event(), MQ_MAILBOX),
+    "flush_queue_producer": (flush_queue, asyncio.Event(), MQ_MAILBOX),
 }
 """
 This dictionary (MQ_HANDLER) stores the callables for different message queue handlers, along with the event and queue objects that they will be using.
@@ -152,13 +180,17 @@ def setup_to_frontend_template_data() -> List[Dict[str, str]]:
 async def add_email_to_db(email_message: EmailMessageAdapted) -> bool:
     """Add email to database, if it doesn't already exist. Return True if added, False if already exists."""
 
-    email_in_db = await db["emails"].find_one({
-        "$or": [
-            {"id": email_message.id},
-            {"body": email_message.body}
-            # {"subject": email_message.subject, "sender": email_message.sender},
-        ]
-    })
+    try:
+        email_in_db = await db["emails"].find_one({
+            "$or": [
+                {"id": email_message.id},
+                {"body": email_message.body}
+                # {"subject": email_message.subject, "sender": email_message.sender},
+            ]
+        })
+    except Exception as e:
+        live_logger.report_to_channel("error", f"Error finding email in database. {e}")
+        return False
 
     if email_in_db:
         # TODO: consider updating the fields on the duplicate object, such as date_recieved or store a counter of duplicates, if this into will be useful later.

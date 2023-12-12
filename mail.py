@@ -12,8 +12,6 @@ from msgraph.generated.users.item.messages.messages_request_builder import Messa
 from email.policy import SMTPUTF8, default
 from db import MongoEmail
 from datetime import datetime
-import random
-from faker import Faker
 from training.dummy_emails import examples
 import asyncio
 
@@ -298,21 +296,6 @@ class EmailClientIMAP:
 
         except Exception as e:
             return f"Error: Could not read emails - {e}"
-    
-    async def read_emails_dummy(self, *args, **kwargs) -> List[EmailMessageAdapted]:
-        #return list with 0-10 dummy random emails
-        fake = Faker()
-        email_messages: List[EmailMessageAdapted] = []
-        for _ in range(random.randint(0,10)):
-            email_message = BaseEmailMessage()
-            email_message["Subject"] = fake.sentence()
-            email_message["From"] = fake.email()
-            email_message["To"] = fake.email()
-            email_message["Date"] = fake.date_time()
-            email_message.set_content(random.choice(examples)) #randomly choose one of the dummy emails
-            email_messages.append(EmailMessageAdapted(email_message))
-
-        return email_messages
 
 class EmailClientAzure:
     """

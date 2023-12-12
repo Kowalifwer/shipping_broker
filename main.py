@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
 from realtime_status_logger import live_logger
-from mq.handler import setup_to_frontend_template_data
+from mq.handler import setup_to_frontend_template_data, MQ_HANDLER
 
 from mq.api import router as process_manager_router
 from realtime_status_logger import router as logger_router
@@ -22,8 +22,8 @@ async def lifespan(app: FastAPI):
         Close the connection
         Clear variables and release the resources
     '''
+    app.state.shutdown_handler()
     print("shutting down from lifespan")
-    await app.state.handle_shutdown()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -60,7 +60,14 @@ async def live_log(request: Request):
     # Render the template with the provided data
     return templates.TemplateResponse("live_logger.html", {"request": request, **data})
 
+async def shutdown_handler():
+    # Shut off any running producer/consumer tasks
+    for tasks in MQ_HANDLER.values():
+        tasks[1].set()
+        print(f"set shutdown event for task {tasks[0].__name__}")
+
 if __name__ == "__main__":
 
     #uvicorn main:app --reload
     uvicorn.run(app, host="0.0.0.0", port=8000, use_colors=True)
+    # uvicorn.run(app)

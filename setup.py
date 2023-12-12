@@ -23,6 +23,7 @@ email_client = EmailClientAzure(azure_connection)
 
 # Connect to MongoDB
 db_hanlder = AsyncIOMotorClient("mongodb://localhost:27017/")
+# db_hanlder = AsyncIOMotorClient(config['mongo']['connection_string'])
 db = db_hanlder["broker"]
 
 # Load your API key from an environment variable or secret management service
