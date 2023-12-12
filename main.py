@@ -14,9 +14,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from mail import EmailMessageAdapted
 from fastapi.templating import Jinja2Templates
-
 import openai
 import mail_init
+from contextlib import asynccontextmanager
 
 #uvicorn main:app --reload
 #https://admin.exchange.microsoft.com/#/settings
@@ -26,7 +26,20 @@ import mail_init
 config = configparser.ConfigParser()
 config.read('config.cfg')
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ''' Run at startup
+        Initialise the Client and add it to app.state
+    '''
+    yield
+    ''' Run on shutdown
+        Close the connection
+        Clear variables and release the resources
+    '''
+    print("shutting down from lifespan")
+    await app.state.handle_shutdown()
+
+app = FastAPI(lifespan=lifespan)
 
 # Serve static files from the "static" directory
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -181,7 +194,7 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
 
         email_generator = email_client.endless_email_read_generator(
             n=9999,
-            batch_size=8,
+            batch_size=50,
 
             most_recent_first=True,
             unseen_only=False,
@@ -236,7 +249,7 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
 
             if end_email_fetching: # if producer got stopped - we must break out of the generator for loop
                 print("breaking out of generator for loop - producer stop command received")
-                break      
+                break
 
     live_logger.report_to_channel("info", f"Producer closed verified.")
 
@@ -244,18 +257,32 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
 async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     # 2. Process all emails in the queue, every 10 seconds, or if email queue is processed.
     while not stoppage_event.is_set():
-        email = await queue.get() # get email from queue
-        print("consumer fetched email from queue")
-        await process_email_dummy(email)
+        try:
+            email = queue.get_nowait() # get email from queue
+        except asyncio.QueueEmpty:
+            await asyncio.sleep(1)
+            continue
+
+        email_added = await add_email_to_db(email)
+
+        if not email_added:
+            live_logger.report_to_channel("warning", f"Email with id {email.id} already in database. Ignoring.")
+            continue
+        else:
+            live_logger.report_to_channel("info", f"Email with id {email.id} added to database.")
+    
+    live_logger.report_to_channel("info", f"Consumer closed verified.")
 
 async def queue_capacity_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     # 3. Check the queue capacity every 5 seconds, and report to the live logger
     while not stoppage_event.is_set():
         await asyncio.sleep(0.2)
         live_logger.report_to_channel("capacities", f"{queue.qsize()},{queue.maxsize}", add_timestamp=False)
+    
+    live_logger.report_to_channel("info", f"Queue capacity producer closed verified.")
 
 async def flush_queue(stoppage_event: asyncio.Event, queue: asyncio.Queue):
-    
+
     ##remove all items from queue
     while not queue.empty() and not stoppage_event.is_set():
         queue.get_nowait()
@@ -263,7 +290,7 @@ async def flush_queue(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     
     live_logger.report_to_channel("info", f"Queue flushed.")
 
-MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=150) # A maximum buffer of 10 emails
+MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=500) # A maximum buffer of 10 emails
 MQ_GPT_EMAIL_TO_DB = asyncio.Queue(maxsize=150) # A maximum buffer of 10 emails
 
 # Please respect the complex signature of this dictionary. You have to create your async functions with the specified signature, and add them to the dictionary below.
@@ -358,35 +385,8 @@ async def endless_cargo_ship_matcher():
     async for ship in cursor:
         matches = await match_ship_to_cargos(MongoShip(**ship))
 
-async def process_email_dummy(email_message: EmailMessageAdapted) -> Union[bool, str]:
-    print("processing email")
-    await asyncio.sleep(5) # simulate the gpt api call time
+def process_email_dummy(email_message: EmailMessageAdapted) -> Union[bool, str]:
     return True
-    
-@app.get("/read_emails_azure")
-async def read_emails_azure():
-    
-    emails = await email_client.get_emails(
-        n=50,
-        most_recent_first=True,
-        unseen_only=False,
-        set_to_read=False
-    )
-
-    if isinstance(emails, str):
-        return {"error": emails}
-    
-
-    for i, email in enumerate(emails, start=1):
-        print(f"msg {i}: {email.date_received}, subject: {email.subject}")
-
-
-        output = await process_email(email)
-        if output != True:
-            return {"message": output}
-
-
-    return {"emails": len(emails)}
 
 # Test view
 @app.get("/delete_spam_emails_azure")
@@ -456,10 +456,8 @@ async def add_email_to_db(email_message: EmailMessageAdapted) -> bool:
 
     if email_in_db:
         # TODO: consider updating the fields on the duplicate object, such as date_recieved or store a counter of duplicates, if this into will be useful later.
-        print("Email already in database. ignoring")
         return False
 
-    print("Email not in database. inserting")
     await db["emails"].insert_one(email_message.mongo_db_object.model_dump())
 
     return True
@@ -615,26 +613,28 @@ async def regex():
 
 shutdown_background_processes = asyncio.Event()
 
-@app.on_event("shutdown") # on shutdown, shut all background processes too.
-async def shutdown_event_handler():
-    shutdown_background_processes.set()
-
-@app.on_event("startup") # handle on startup background process setup
-async def startup_event_handler():
-    ...
-
-@app.get("/shutdown")
-async def shutdown():
+# TODO: does not need to be async to be honest.
+async def shutdown_handler():
     print("setting shutdown event")
     shutdown_background_processes.set()
     await live_logger.close_session()
+    print("connection to websocket closed")
 
     # Shut off any running producer/consumer tasks
     for tasks in MQ_HANDLER.values():
         tasks[1].set()
+        print(f"set shutdown event for task {tasks[0].__name__}")
 
     return {"message": "Shutdown event set"}
 
+app.state.handle_shutdown = shutdown_handler
+
+@app.get("/shutdown")
+async def shutdown():
+    print("setting shutdown event")
+    await shutdown_handler()
+
 if __name__ == "__main__":
+
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, use_colors=True)
