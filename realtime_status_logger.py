@@ -1,9 +1,10 @@
 from fastapi import WebSocket
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.routing import APIRouter
-from typing import List, Optional, Dict, overload, Union
+from typing import List, Dict, overload, Union
 from datetime import datetime
 import asyncio
+
 # Create a router and add the endpoints
 router = APIRouter()
 
@@ -53,8 +54,6 @@ class WebSocketManager:
         if user_id in self.connections:
             await self.connections[user_id].send_json(json_data)
 
-websocket_manager = WebSocketManager()
-
 class LiveLogger:
     """Class to handle live logging of status updates to a channel"""
     def __init__(self, websocket_manager: WebSocketManager, channels: List[str] = []):
@@ -89,20 +88,22 @@ class LiveLogger:
     def set_channels(self, channels: List[str]):
         self.channels = channels
 
+#  Instantiate a WebSocketManager and LiveLogger instance. Websocket manager is necessary to handle the connections, for LiveLogger.
+websocket_manager_instance = WebSocketManager()
+
+live_logger = LiveLogger(websocket_manager_instance, channels=["info", "error", "warning"])
+
 @router.websocket("/ws/info/{user_id}/")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
 
-    await websocket_manager.connect(websocket, user_id)
+    await websocket_manager_instance.connect(websocket, user_id)
     try:
         while True:
             # A way to keep the websocket alive, whilst also checking for disconnectino (WebSocketDisconnect)
             await websocket.receive_text()
 
     except WebSocketDisconnect:
-        websocket_manager.disconnect(websocket)
+        websocket_manager_instance.disconnect(websocket)
 
     except Exception as e:
         print(f"Exception occured in websocket_endpoint process for socket {websocket}: {e}")
-
-# create an instance of LiveLogger that can be imported ad used across different modules in the application
-live_logger = LiveLogger(websocket_manager, channels=["info", "error", "warning"])

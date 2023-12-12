@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, Extra, validator
+from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict
 from datetime import datetime
 import re
@@ -67,7 +67,7 @@ class MongoShip(BaseModel):
         return extract_month(values.get("month", ""))
 
     class Config:
-        extra = Extra.allow
+        extra = 'allow'
 
 class MongoCargo(BaseModel):
     # Fields to extract from email
@@ -117,7 +117,7 @@ class MongoCargo(BaseModel):
         return final
 
     class Config:
-        extra = Extra.allow
+        extra = 'allow'
 
 class MongoCargoShipPair(BaseModel):
     cargo_id: str # ID of the Cargo object
