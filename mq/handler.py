@@ -1,8 +1,8 @@
 from typing import Dict, Tuple, Callable, Coroutine, Any, Literal, List, Union, Optional
 import asyncio
 
-from pymongo import MongoClient
-from pymongo.errors import ConnectionFailure
+from pydantic import ValidationError
+from db import MongoShip, MongoCargo
 
 from setup import email_client, openai, db
 from realtime_status_logger import live_logger
@@ -273,9 +273,6 @@ async def email_to_entities_via_openai(email_message: EmailMessageAdapted) -> di
     final = json.loads(json_response)
     return final
 
-from pydantic import ValidationError
-from db import MongoShip, MongoCargo
-
 async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAdapted) -> None:
     """Insert GPT-3.5 entries into database."""
 
@@ -335,6 +332,12 @@ async def db_listens_for_new_emails_producer(stoppage_event: asyncio.Event, queu
     attempt_interval = 5 # seconds
 
     # 4. Listen for new emails being added to the database, and add them to the queue
+    # Note this only works if MongoDB Node is running in replica set mode, and the database is configured to use Change Streams.
+    # This can be done locally by running the following command in the mongo shell:
+    # rs.initiate()
+    # But only if the initialized node had the proper config that allows for replica sets. Check mongo-setup mongod.conf for commented out example how I did it locally.
+    # More info: https://docs.mongodb.com/manual/changeStreams/
+
     collection = db["emails"]
     async with collection.watch() as stream:
         print("Listening for new emails in database.")
