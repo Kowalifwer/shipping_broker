@@ -102,7 +102,7 @@ async def list_mail_folders():
 
     return {"message": folders}
 
-async def email_to_json_via_openai(email_message: EmailMessageAdapted) -> dict:
+async def email_to_entities_via_openai(email_message: EmailMessageAdapted) -> dict:
     
     #https://github.com/openai/openai-cookbook/blob/main/examples/api_request_parallel_processor.py -> parallel processing example
     """
@@ -193,7 +193,7 @@ async def process_email(email_message: EmailMessageAdapted) -> None:
 
     # Converting email to JSON via GPT-3.5
     try:
-        gpt_response = await email_to_json_via_openai(email_message)
+        gpt_response = await email_to_entities_via_openai(email_message)
     except Exception as e:
         live_logger.report_to_channel("error", f"Error converting email to JSON via GPT-3.5. {e}")
         return

@@ -38,7 +38,7 @@ app.include_router(logger_router)
 app.include_router(process_manager_router)
 
 # Set the channels that you want to log to throughout the app
-live_logger.set_channels(["info", "error", "warning", "capacities"])
+live_logger.set_channels(["info", "error", "warning", "capacities", "gpt", "extra"])
 
 # Route for the root endpoint
 @app.get("/")

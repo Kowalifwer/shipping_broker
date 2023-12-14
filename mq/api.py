@@ -28,11 +28,17 @@ async def launch_backgrond_task(background_tasks: BackgroundTasks, action: Liter
     message_queue = MQ_HANDLER[name][2]
     remaining_args = MQ_HANDLER[name][3:]
 
+    extra_params_temp = {}
+    name_sections = name.split("_")
+    ## check if last word is a number
+    if name_sections[0].isnumeric():
+        extra_params_temp["n"] = int(name_sections[0])
+
     if action == "start":
         task_event.clear()
 
         # background_tasks.add_task(task_function, task_event, message_queue)
-        background_tasks.add_task(*MQ_HANDLER[name])
+        background_tasks.add_task(*MQ_HANDLER[name], **extra_params_temp)
     elif action == "end":
         task_event.set()
     

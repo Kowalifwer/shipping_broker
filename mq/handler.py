@@ -8,6 +8,8 @@ from setup import email_client, openai, db
 from realtime_status_logger import live_logger
 from mail import EmailMessageAdapted
 from db import MongoEmail
+from gpt_prompts import prompt
+import json
 
 async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted]):
     # 1. Read all UNSEEN emails from the mailbox, every 5 seconds, or if email queue is processed.
@@ -98,6 +100,29 @@ async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue_to_fetch_fr
 
     live_logger.report_to_channel("info", f"Consumer closed verified.")
 
+async def gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue[str], n_tasks: int = 1):
+    # Summon n consumers to run concurrently, and turn emails from queue into entities using GPT-3 (THIS IS ALMOST FULLY A I/O BOUND TASK, so should not be too CPU intensive)
+    for i in range(n_tasks):
+        asyncio.create_task(_gpt_email_consumer(stoppage_event, queue))
+    
+    live_logger.report_to_channel("gpt", f"Summoned {n_tasks} GPT-3 email consumers.")
+
+async def _gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue[str]):
+    # 5. Consume emails from the queue, and generate a response using GPT-3
+    live_logger.report_to_channel("gpt", f"Starting GPT-3 email consumer.")
+    while not stoppage_event.is_set():
+        try:
+            email_id = queue.get_nowait() # get email from queue
+            await email_to_entities_via_openai(email_id)
+
+        except asyncio.QueueEmpty:
+            await asyncio.sleep(1)
+            continue
+
+        except Exception as e:
+            live_logger.report_to_channel("gpt", f"Error converting email to entities via OpenAI. {e}")
+            continue
+
 async def queue_capacity_producer(stoppage_event: asyncio.Event, *queues: asyncio.Queue):
     # 3. Check the queue capacity every 5 seconds, and report to the live logger
     from uuid import uuid4
@@ -133,10 +158,10 @@ MQ_HANDLER: Dict[str, Tuple[
     "mailbox_read_consumer": (mailbox_read_consumer, asyncio.Event(), MQ_MAILBOX, MQ_GPT_EMAIL_TO_DB), # type: ignore - temporary due to https://github.com/Kowalifwer/shipping_broker/issues/2
 
 
+    "3_gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB), #temporarily, declare number of tasks in the function name
 
     # "db_listens_for_new_emails_producer": (db_listens_for_new_emails_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
     # "gpt_email_producer": (gpt_email_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
-    # "gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
 
 
     # temporary helper methods for testing.
@@ -192,6 +217,45 @@ async def add_email_to_db(email_message: EmailMessageAdapted) -> Union[str, bool
     live_logger.report_to_channel("info", f"Email with id {email_message.id} added to database.")
 
     return str(inserted_result.inserted_id)
+
+async def email_to_entities_via_openai(email_message: Union[EmailMessageAdapted, str]) -> dict:
+    
+    #https://github.com/openai/openai-cookbook/blob/main/examples/api_request_parallel_processor.py -> parallel processing example
+    """
+    Convert an email message to JSON using OpenAI ChatCompletion.
+
+    Parameters:
+    - email_message: The email message to be converted. Can be either an EmailMessageAdapted object, or a string representing the email id in the database.
+
+    Returns:
+    Union[str, dict]: The JSON representation of the email message, or an error message.
+
+    Raises:
+    - OpenAIError: If there is an error in the OpenAI API request.
+    - json.JSONDecodeError: If there is an error decoding the JSON response.
+    """
+    if isinstance(email_message, str):
+        found_email = await db["emails"].find_one({"_id": email_message})
+        if not found_email:
+            return {"error": f"Email with id {email_message} not found in database."}
+
+        email_message = MongoEmail(**found_email) # type: ignore
+
+    response = await openai.ChatCompletion.acreate(
+        model="gpt-3.5-turbo-1106",
+        temperature=0.2,
+        # top_p=1,
+        response_format={ "type": "json_object" },
+        messages=[
+            {"role": "system", "content": prompt.system},
+            {"role": "user", "content": email_message.body} # type: ignore
+        ]
+    )
+    json_response = response.choices[0].message.content # type: ignore
+
+    final = json.loads(json_response)
+    return final
+
 
 async def db_listens_for_new_emails_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     """Deprecated. Until it is decided what approach to take with issue #2, this function will not be used."""
