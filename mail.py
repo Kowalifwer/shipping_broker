@@ -525,7 +525,7 @@ class EmailClientAzure:
 
                 next_link = messages.odata_next_link
                 if not next_link:
-                    live_logger.report_to_channel("info", f"Retrieval cut short as all emails have been read. Total of {len(messages.value)} emails retrieved, even though {n} were requested.")
+                    live_logger.report_to_channel("extra", f"Retrieval cut short as all emails have been read. Total of {len(messages.value)} emails retrieved, even though {n} were requested.")
                     yield extract_final_message_list_and_launch_postprocessing(messages.value)
 
                 yielded_messages_count += len(messages.value)
@@ -534,7 +534,6 @@ class EmailClientAzure:
                 if next_link: # If Azure API returns a link to the next page of results - means there are more emails to retrieve.
                     # Create a safe loop for the next n//batch_size requests. This will also handle the case if there are no more emails to retrieve (n_loops will be 0)
                     n_loops = (n-yielded_messages_count)//batch_size
-                    print(f"Will retrieve {n_loops} more batches of {batch_size} emails")
                     
                     for _ in range(n_loops):
                         messages = await self.client.me.messages.with_url(next_link).get()  # Fetch the next page of results using the url provided in the previous response.
@@ -542,11 +541,12 @@ class EmailClientAzure:
                             if messages.value:
 
                                 next_link = messages.odata_next_link
+                                print(next_link)
                                 yielded_messages_count += len(messages.value)
                                 yield extract_final_message_list_and_launch_postprocessing(messages.value)
 
                                 if not next_link:
-                                    live_logger.report_to_channel("info", f"Retrieval cut short as all emails have been read. Total of {yielded_messages_count} emails retrieved, even though {n} were requested.")
+                                    live_logger.report_to_channel("extra", f"Retrieval cut short as all emails have been read. Total of {yielded_messages_count} emails retrieved, even though {n} were requested.")
                                     break
 
     async def get_email_attachments(self, message_id: str) -> Union[list, str]:

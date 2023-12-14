@@ -12,6 +12,11 @@ from gpt_prompts import prompt
 import json
 
 async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted]):
+    live_logger.report_to_channel("extra", f"Starting MULTI mailbox read producer.")
+    asyncio.create_task(_mailbox_read_producer(stoppage_event, queue, False))
+    # asyncio.create_task(_mailbox_read_producer(stoppage_event, queue, True))
+
+async def _mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted], reverse=False):
     # 1. Read all UNSEEN emails from the mailbox, every 5 seconds, or if email queue is processed.
 
     attempt_interval = 5 # seconds
@@ -22,10 +27,10 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
             n=9999,
             batch_size=50,
 
-            most_recent_first=True,
+            most_recent_first=reverse,
             unseen_only=True,
             set_to_read=False,
-            remove_undelivered=True
+            remove_undelivered=True,
         )
 
         async for email_batch in email_generator:
@@ -58,7 +63,7 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
                             break # break out of the while loop
 
                         except asyncio.QueueFull:
-                            live_logger.report_to_channel("warning", f"{queue.qsize()}/{queue.maxsize} emails in messenger queue - waiting for queue to free up space. Emails waiting to be added by producer: {len(emails)}")
+                            live_logger.report_to_channel("warning", f"{queue.qsize()}/{queue.maxsize} emails in messenger queue - waiting for queue to free up space.")
                             await asyncio.sleep(attempt_interval)
 
                 # If full email batch was added to queue, then break out of the while loop
@@ -70,10 +75,14 @@ async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Qu
                 batch_processed = True
 
                 await asyncio.sleep(0.2)
+        
+        # If we are here - that means the generator has been exhaused! meaning all emails have been read OR n limit has been reached.
+        # Therefore, it would be a good idea to wait a bit before starting a new cycle.
+        await asyncio.sleep(10)
 
     live_logger.report_to_channel("info", f"Producer closed verified.")
 
-async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue_to_fetch_from: asyncio.Queue[EmailMessageAdapted], queue_to_add_to: asyncio.Queue[str]):
+async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue_to_fetch_from: asyncio.Queue[EmailMessageAdapted], queue_to_add_to: asyncio.Queue[EmailMessageAdapted]):
     # 2. Process all emails in the queue, every 10 seconds, or if email queue is processed.
     while not stoppage_event.is_set():
         try:
@@ -90,7 +99,7 @@ async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue_to_fetch_fr
         # Refer to: https://github.com/Kowalifwer/shipping_broker/issues/2
         while True:
             try:
-                queue_to_add_to.put_nowait(str(email_added))
+                queue_to_add_to.put_nowait(email)
                 live_logger.report_to_channel("info", f"Email with id {email.id} added to queue.")
                 break # break out of the while loop
             except asyncio.QueueFull:
@@ -100,28 +109,39 @@ async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue_to_fetch_fr
 
     live_logger.report_to_channel("info", f"Consumer closed verified.")
 
-async def gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue[str], n_tasks: int = 1):
+async def gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted], n_tasks: int = 1):
     # Summon n consumers to run concurrently, and turn emails from queue into entities using GPT-3 (THIS IS ALMOST FULLY A I/O BOUND TASK, so should not be too CPU intensive)
-    for i in range(n_tasks):
+    for _ in range(n_tasks):
         asyncio.create_task(_gpt_email_consumer(stoppage_event, queue))
     
     live_logger.report_to_channel("gpt", f"Summoned {n_tasks} GPT-3 email consumers.")
 
-async def _gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue[str]):
+async def _gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted]):
     # 5. Consume emails from the queue, and generate a response using GPT-3
     live_logger.report_to_channel("gpt", f"Starting GPT-3 email consumer.")
     while not stoppage_event.is_set():
         try:
-            email_id = queue.get_nowait() # get email from queue
-            await email_to_entities_via_openai(email_id)
+            email = queue.get_nowait() # get email from queue
+            gpt_response = await email_to_entities_via_openai(email)
+
+            entries = gpt_response.get("entries", [])
+            if not entries:
+                live_logger.report_to_channel("error", f"Error in processing email - No entries returned from GPT-3.5.")
+                return
+            
+            await insert_gpt_entries_into_db(entries, email)
 
         except asyncio.QueueEmpty:
-            await asyncio.sleep(1)
-            continue
+            await asyncio.sleep(2)
 
-        except Exception as e:
+        except openai.OpenAIError as e:
             live_logger.report_to_channel("gpt", f"Error converting email to entities via OpenAI. {e}")
-            continue
+        
+        except json.JSONDecodeError as e:
+            live_logger.report_to_channel("gpt", f"Error decoding JSON response from OpenAI. {e}")
+        
+        except Exception as e:
+            live_logger.report_to_channel("gpt", f"Unhandled error in processing email. {e}")
 
 async def queue_capacity_producer(stoppage_event: asyncio.Event, *queues: asyncio.Queue):
     # 3. Check the queue capacity every 5 seconds, and report to the live logger
@@ -145,8 +165,11 @@ async def flush_queue(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     
     live_logger.report_to_channel("info", f"Queue flushed.")
 
-MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=500) # A maximum buffer of 10 emails
-MQ_GPT_EMAIL_TO_DB = asyncio.Queue(maxsize=500) # A maximum buffer of 10 emails
+# Message Queue for stage 1 - Mailbox read and add to database
+MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=2000)
+
+# Message Queue for stage 2 - GPT-3.5 email processing
+MQ_GPT_EMAIL_TO_DB: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=500)
 
 # Please respect the complex signature of this dictionary. You have to create your async functions with the specified signature, and add them to the dictionary below.
 MQ_HANDLER: Dict[str, Tuple[
@@ -158,7 +181,7 @@ MQ_HANDLER: Dict[str, Tuple[
     "mailbox_read_consumer": (mailbox_read_consumer, asyncio.Event(), MQ_MAILBOX, MQ_GPT_EMAIL_TO_DB), # type: ignore - temporary due to https://github.com/Kowalifwer/shipping_broker/issues/2
 
 
-    "3_gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB), #temporarily, declare number of tasks in the function name
+    "1_gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB), #temporarily, declare number of tasks in the function name
 
     # "db_listens_for_new_emails_producer": (db_listens_for_new_emails_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
     # "gpt_email_producer": (gpt_email_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
@@ -218,14 +241,14 @@ async def add_email_to_db(email_message: EmailMessageAdapted) -> Union[str, bool
 
     return str(inserted_result.inserted_id)
 
-async def email_to_entities_via_openai(email_message: Union[EmailMessageAdapted, str]) -> dict:
+async def email_to_entities_via_openai(email_message: EmailMessageAdapted) -> dict:
     
     #https://github.com/openai/openai-cookbook/blob/main/examples/api_request_parallel_processor.py -> parallel processing example
     """
     Convert an email message to JSON using OpenAI ChatCompletion.
 
     Parameters:
-    - email_message: The email message to be converted. Can be either an EmailMessageAdapted object, or a string representing the email id in the database.
+    - email_message: The email message to convert to JSON. An instance of EmailMessageAdapted.
 
     Returns:
     Union[str, dict]: The JSON representation of the email message, or an error message.
@@ -234,12 +257,6 @@ async def email_to_entities_via_openai(email_message: Union[EmailMessageAdapted,
     - OpenAIError: If there is an error in the OpenAI API request.
     - json.JSONDecodeError: If there is an error decoding the JSON response.
     """
-    if isinstance(email_message, str):
-        found_email = await db["emails"].find_one({"_id": email_message})
-        if not found_email:
-            return {"error": f"Email with id {email_message} not found in database."}
-
-        email_message = MongoEmail(**found_email) # type: ignore
 
     response = await openai.ChatCompletion.acreate(
         model="gpt-3.5-turbo-1106",
@@ -255,6 +272,61 @@ async def email_to_entities_via_openai(email_message: Union[EmailMessageAdapted,
 
     final = json.loads(json_response)
     return final
+
+from pydantic import ValidationError
+from db import MongoShip, MongoCargo
+
+async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAdapted) -> None:
+    """Insert GPT-3.5 entries into database."""
+
+    ignored_entries = []
+    ships = []
+    cargos = []
+    mongo_email = email.mongo_db_object
+
+    for entry in entries:
+
+        entry_type = entry.get("type")
+        if entry_type not in ["ship", "cargo"]:
+            ignored_entries.append(entry)
+            continue
+
+        entry["email"] = mongo_email
+
+        if entry_type == "ship":
+            try:
+                ship = MongoShip(**entry)
+
+                ships.append(ship.model_dump())
+            except ValidationError as e:
+                ignored_entries.append(entry)
+                print("Error validating ship. skipping addition", e)
+        
+        elif entry_type == "cargo":
+            try:
+                cargo = MongoCargo(**entry)
+
+                cargos.append(cargo.model_dump())
+            except ValidationError as e:
+                ignored_entries.append(entry)
+                print("Error validating cargo. skipping addition", e)
+
+
+    # Insert email into MongoDB
+    await db["emails"].insert_one(mongo_email.model_dump())
+
+    if ships:
+        # Insert ships into MongoDB
+        await db["ships"].insert_many(ships)
+
+    if cargos:
+        # Insert cargos into MongoDB
+        await db["cargos"].insert_many(cargos)
+    
+    live_logger.report_to_channel("gpt", f"Inserted {len(ships)} ships and {len(cargos)} cargos into database.")
+    if ignored_entries:
+        live_logger.report_to_channel("extra", f"Additionally, ignored {len(ignored_entries)} entries from GPT-3.5. {ignored_entries}")
+
 
 
 async def db_listens_for_new_emails_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
