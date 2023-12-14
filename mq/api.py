@@ -30,9 +30,9 @@ async def launch_backgrond_task(background_tasks: BackgroundTasks, action: Liter
 
     extra_params_temp = {}
     name_sections = name.split("_")
-    ## check if last word is a number
+    ## Check if first word is a number - this is a temporary solution to allow spawning n tasks of a given producer/consumer
     if name_sections[0].isnumeric():
-        extra_params_temp["n"] = int(name_sections[0])
+        extra_params_temp["n_tasks"] = int(name_sections[0])
 
     if action == "start":
         task_event.clear()

@@ -32,32 +32,6 @@ class MongoEmail(BaseModel):
 
     timestamp_processed: Optional[datetime] # Timestamp of when the email was processed
 
-def create_calculated_fields_for_ship(existing_values: Dict) -> Dict:
-    # This method is called before validation, and it calculates capacity_int based on capacity
-
-    # If capacity is not specified, pass an empty string to extract_number, which will return None
-    existing_values["capacity_int"] = extract_number(existing_values.get("capacity", ""))
-    existing_values["month_int"] = extract_month(existing_values.get("month", ""))
-
-    return existing_values
-
-def create_calculated_fields_for_cargo(existing_values: Dict) -> Dict:
-    # This method is called before validation, and it calculates capacity_int based on capacity
-
-    # If capacity is not specified, pass an empty string to extract_number, which will return None
-    existing_values["quantity_int"] = extract_number(existing_values.get("quantity", ""))
-    existing_values["month_int"] = extract_month(existing_values.get("month", ""))
-
-    # handle commission calculation
-    comission = 10.0 # set to high number default
-    match = re.search(r'\b(\d+(?:\.\d+)?)\b', existing_values.get("commission", ""))
-    if match:
-        comission = float(match.group(0))
-
-    existing_values["commission_float"] = comission
-
-    return existing_values
-
 class MongoShip(BaseModel):
     # Fields to extract from email
     name: Optional[str] # Name of the ship
@@ -77,6 +51,20 @@ class MongoShip(BaseModel):
 
     # Extra fields
     pairs_with: Optional[List[str]] = [] # List of cargo IDs that this ship is paired with
+
+    @validator("capacity_int", pre=True, always=True)
+    def calculate_capacity_int(cls, v, values):
+        # This method is called before validation, and it calculates capacity_int based on capacity
+
+        # If capacity is not specified, pass an empty string to extract_number, which will return None
+        return extract_number(values.get("capacity", ""))
+    
+    @validator("month_int", pre=True, always=True)
+    def calculate_month_int(cls, v, values):
+        # This method is called before validation, and it calculates month_int based on month
+
+        # If month is not specified, pass an empty string to extract_month, which will return None
+        return extract_month(values.get("month", ""))
 
     class Config:
         extra = 'allow'
@@ -103,6 +91,30 @@ class MongoCargo(BaseModel):
 
     # Extra fields
     pairs_with: Optional[List[str]] = [] # List of ship IDs that this cargo is paired with
+
+    @validator("quantity_int", pre=True, always=True)
+    def calculate_quantity_int(cls, v, values):
+        # This method is called before validation, and it calculates quantity_int based on quantity
+
+        # If quantity is not specified, pass an empty string to extract_number, which will return None
+        return extract_number(values.get("quantity", ""))
+    
+    @validator("month_int", pre=True, always=True)
+    def calculate_month_int(cls, v, values):
+        # This method is called before validation, and it calculates month_int based on month
+
+        # If month is not specified, pass an empty string to extract_month, which will return None
+        return extract_month(values.get("month", ""))
+    
+    @validator("commission_float", pre=True, always=True)
+    def calculate_commission_float(cls, v, values):
+        # commission is a string, typical e.g. "2.5%" or "3.75%"
+
+        final = None
+        match = re.search(r'\b(\d+(?:\.\d+)?)\b', values.get("commission", ""))
+        if match:
+            final = float(match.group(0))
+        return final
 
     class Config:
         extra = 'allow'

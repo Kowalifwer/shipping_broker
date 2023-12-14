@@ -1,6 +1,6 @@
 import configparser
 from motor.motor_asyncio import AsyncIOMotorClient
-import openai
+from openai import AsyncOpenAI
 
 from mail import EmailClientAzure
 import mail_init
@@ -27,4 +27,7 @@ db_hanlder = AsyncIOMotorClient(config['mongo']['connection_local'])
 db = db_hanlder["broker"]
 
 # Load your API key from an environment variable or secret management service
-openai.api_key = config['openai']['api_key']
+
+openai_client = AsyncOpenAI(
+     api_key=config['openai']['api_key'],
+)

@@ -1,13 +1,14 @@
 from typing import Dict, Tuple, Callable, Coroutine, Any, Literal, List, Union, Optional
 import asyncio
+from openai import OpenAIError
 
 from pydantic import ValidationError
 from db import MongoShip, MongoCargo
 
-from setup import email_client, openai, db
+from setup import email_client, openai_client, db
 from realtime_status_logger import live_logger
 from mail import EmailMessageAdapted
-from db import MongoEmail
+from db import MongoEmail, create_calculated_fields_for_ship, create_calculated_fields_for_cargo
 from gpt_prompts import prompt
 import json
 
@@ -78,6 +79,7 @@ async def _mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
         
         # If we are here - that means the generator has been exhaused! meaning all emails have been read OR n limit has been reached.
         # Therefore, it would be a good idea to wait a bit before starting a new cycle.
+        live_logger.report_to_channel("info", f"Email generator exhausted. Waiting 10 seconds before starting a new cycle.")
         await asyncio.sleep(10)
 
     live_logger.report_to_channel("info", f"Producer closed verified.")
@@ -131,10 +133,13 @@ async def _gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queu
             
             await insert_gpt_entries_into_db(entries, email)
 
+            live_logger.report_to_channel("gpt", f"Email with id {email.id} processed by GPT-3.5. Entities added to database. Sleeping for 5 seconds.")
+            await asyncio.sleep(5)
+
         except asyncio.QueueEmpty:
             await asyncio.sleep(2)
 
-        except openai.OpenAIError as e:
+        except OpenAIError as e:
             live_logger.report_to_channel("gpt", f"Error converting email to entities via OpenAI. {e}")
         
         except json.JSONDecodeError as e:
@@ -189,7 +194,7 @@ MQ_HANDLER: Dict[str, Tuple[
 
     # temporary helper methods for testing.
     "queue_capacity_producer": (queue_capacity_producer, asyncio.Event(), MQ_MAILBOX, MQ_GPT_EMAIL_TO_DB),
-    "flush_queue_producer": (flush_queue, asyncio.Event(), MQ_MAILBOX),
+    # "flush_queue_producer": (flush_queue, asyncio.Event(), MQ_MAILBOX),
 }
 """
 This dictionary (MQ_HANDLER) stores the callables for different message queue handlers, along with the event and queue objects that they will be using.
@@ -258,7 +263,7 @@ async def email_to_entities_via_openai(email_message: EmailMessageAdapted) -> di
     - json.JSONDecodeError: If there is an error decoding the JSON response.
     """
 
-    response = await openai.ChatCompletion.acreate(
+    response = await openai_client.chat.completions.create(
         model="gpt-3.5-turbo-1106",
         temperature=0.2,
         # top_p=1,
@@ -269,6 +274,8 @@ async def email_to_entities_via_openai(email_message: EmailMessageAdapted) -> di
         ]
     )
     json_response = response.choices[0].message.content # type: ignore
+    if not json_response:
+        raise OpenAIError("No JSON response from OpenAI.")
 
     final = json.loads(json_response)
     return final
@@ -292,6 +299,10 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
 
         if entry_type == "ship":
             try:
+                # Add calculated fields to ship
+                ship_calculated_fields = create_calculated_fields_for_ship(entry)
+                entry.update(ship_calculated_fields)
+
                 ship = MongoShip(**entry)
 
                 ships.append(ship.model_dump())
@@ -301,6 +312,10 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
         
         elif entry_type == "cargo":
             try:
+                # Add calculated fields to cargo
+                cargo_calculated_fields = create_calculated_fields_for_cargo(entry)
+                entry.update(cargo_calculated_fields)
+
                 cargo = MongoCargo(**entry)
 
                 cargos.append(cargo.model_dump())
