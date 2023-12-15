@@ -1,0 +1,48 @@
+Dear ship owner,
+
+####################
+Original email: {{ email.body }}
+###################
+
+reply to: {{ email.sender }}
+BUT we reply to the email directly, fetched via id: {{ email.id }}
+
+###################
+Ship DATA from GPT:
+
+Ship Name: {{ ship.name }}
+Ship Status: {{ ship.status }}
+Ship Port: {{ ship.port }}
+Ship Sea: {{ ship.sea }}
+Ship Capacity: {{ ship.capacity }}
+Ship Month: {{ ship.month }}
+-------------------
+Ship capacity_int: {{ ship.capacity_int }}
+Ship month_int: {{ ship.month_int }}
+###################
+###################
+MATCHES:
+
+We are pleased to inform you that we have found some excellent cargo matches. Here are the details:
+
+{% for cargo in cargos %}
+    Name: {{ cargo.name }}
+    Quantity: {{ cargo.quantity }}
+    Port From: {{ cargo.port_from }}
+    Port To: {{ cargo.port_to }}
+    Sea From: {{ cargo.sea_from }}
+    Sea To: {{ cargo.sea_to }}
+    Month: {{ cargo.month }}
+    Comission: {{ cargo.comission }}
+
+    ---------------------------------
+    Quantity_int: {{ cargo.quantity_int }}
+    Month_int: {{ cargo.month_int }}
+    Comission_float: {{ cargo.comission_float }}
+++++++++++++
+{% endfor %}
+
+If you have any further questions or if you are interested in any of these matches, please feel free to contact us.
+
+Best regards,
+Unimar Service ltd.

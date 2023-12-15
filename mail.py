@@ -548,25 +548,50 @@ class EmailClientAzure:
                                 if not next_link:
                                     live_logger.report_to_channel("extra", f"Retrieval cut short as all emails have been read. Total of {yielded_messages_count} emails retrieved, even though {n} were requested.")
                                     break
-
-    async def get_email_attachments(self, message_id: str) -> Union[list, str]:
+    
+    async def send_email(self, subject: str, body: str, to_email: str) -> bool:
+        from msgraph.generated.models.message import Message
+        from msgraph.generated.models.recipient import Recipient
+        from msgraph.generated.models.email_address import EmailAddress
+        from msgraph.generated.models.item_body import ItemBody
+        from msgraph.generated.models.body_type import BodyType
+        from msgraph.generated.users.item.send_mail.send_mail_post_request_body import SendMailPostRequestBody
+    
         """
-        Retrieves email attachments for a specific email message.
+        Sends an email.
 
         Args:
-            message_id (str): The ID of the email message.
+            subject (str): The subject of the email.
+            body (str): The content of the email.
+            to_email (str): The recipient's email address.
 
         Returns:
-            list: A list of email attachments.
+            str: A message indicating the result of the operation.
 
         Raises:
             Exception: If an error occurs during the operation.
         """
+        new_email = Message(
+            subject=subject,
+            body=ItemBody(
+                content=body,
+                content_type=BodyType.Text
+            ),
+            to_recipients=[Recipient(email_address=EmailAddress(address=to_email))],
+        )
+
+        request_body = SendMailPostRequestBody(
+            message = new_email,
+            save_to_sent_items = True,
+        )
+
         try:
-            attachments = self.client.me.messages[message_id].attachments.get()
-            return attachments
+            await self.client.me.send_mail.post(request_body)
+            return True
+
         except Exception as e:
-            return str(e)
+            live_logger.report_to_channel("error", f"Error: Could not send email - {e}")
+            return False
 
     async def reply_to_email(self, message_id: str) -> str:
         """
@@ -581,70 +606,7 @@ class EmailClientAzure:
         Raises:
             Exception: If an error occurs during the operation.
         """
-        try:
-            self.client.me.messages[message_id].reply()
-            return "Email replied successfully"
-        except Exception as e:
-            return str(e)
-
-    async def forward_email(self, message_id: str) -> str:
-        """
-        Forwards an email message.
-
-        Args:
-            message_id (str): The ID of the email message to forward.
-
-        Returns:
-            str: A message indicating the result of the operation.
-
-        Raises:
-            Exception: If an error occurs during the operation.
-        """
-        try:
-            self.client.me.messages[message_id].forward()
-            return "Email forwarded successfully"
-        except Exception as e:
-            return str(e)
-
-    async def move_email(self, message_id: str, folder_id: str) -> str:
-        """
-        Moves an email message to a specified folder.
-
-        Args:
-            message_id (str): The ID of the email message to move.
-            folder_id (str): The ID of the target folder.
-
-        Returns:
-            str: A message indicating the result of the operation.
-
-        Raises:
-            Exception: If an error occurs during the operation.
-        """
-        try:
-            self.client.me.messages[message_id].move(destination_id=folder_id)
-            return "Email moved successfully"
-        except Exception as e:
-            return str(e)
-
-    async def delete_email(self, message_id: str) -> str:
-        """
-        Deletes an email message.
-
-        Args:
-            message_id (str): The ID of the email message to delete.
-
-        Returns:
-            str: A message indicating the result of the operation.
-
-        Raises:
-            Exception: If an error occurs during the operation.
-        """
-        try:
-            self.client.me.messages[message_id].delete()
-            return "Email deleted successfully"
-        except Exception as e:
-            return str(e)
-
+        ...
 
 ## Extra azure info
 

@@ -26,8 +26,7 @@ db_hanlder = AsyncIOMotorClient(config['mongo']['connection_local'])
 # db_hanlder = AsyncIOMotorClient(config['mongo']['connection_string'])
 db = db_hanlder["broker"]
 
-# Load your API key from an environment variable or secret management service
-
+# Instantiate openai client
 openai_client = AsyncOpenAI(
      api_key=config['openai']['api_key'],
 )

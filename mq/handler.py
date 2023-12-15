@@ -4,6 +4,7 @@ from openai import OpenAIError
 
 from pydantic import ValidationError
 from db import MongoShip, MongoCargo
+from jinja2 import Template, Environment, FileSystemLoader
 
 from setup import email_client, openai_client, db
 from realtime_status_logger import live_logger
@@ -148,6 +149,91 @@ async def _gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queu
         except Exception as e:
             live_logger.report_to_channel("gpt", f"Unhandled error in processing email. {e}")
 
+async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[MongoShip]):
+    while not stoppage_event.is_set():
+
+        # Fetch emails from DB, about SHIPS, from most RECENT to least recent, and add them to the queue
+        # Make sure the ships "pairs_with" is an empty list, and that the ship has not been processed yet.
+        db_cursor = db["ships"].find(
+            {
+                "pairs_with": [],
+            }
+        ).sort("timestamp_processed", -1)
+        async for ship in db_cursor:
+            ship = MongoShip(**ship)
+            await queue.put(ship)
+            if stoppage_event.is_set():
+                live_logger.report_to_channel("info", f"Producer closed verified.")
+                return
+
+async def item_matching_consumer(stoppage_event: asyncio.Event, queue_from: asyncio.Queue[MongoShip], queue_to: asyncio.Queue[MongoShip]):
+    # 6. Consume emails from the queue, and match them with other entities in the database
+    while not stoppage_event.is_set():
+        try:
+            ship = queue_from.get_nowait() # get ship from queue
+
+            matching_cargos = await match_cargos_to_ship(ship)
+
+            if not matching_cargos:
+                live_logger.report_to_channel("warning", f"No matching cargos found for ship with id {str(ship.id)}.")
+                continue
+                
+            ship.pairs_with = matching_cargos
+
+            while True:
+                try:
+                    queue_to.put_nowait(ship)
+                    break
+                except asyncio.QueueFull:
+                    if stoppage_event.is_set():
+                        live_logger.report_to_channel("info", f"Consumer closed verified.")
+                        return
+
+                    live_logger.report_to_channel("warning", f"{queue_to.qsize()}/{queue_to.maxsize} ships in matching queue - waiting for queue to free up space.")
+                    await asyncio.sleep(5)
+        
+        except asyncio.QueueEmpty:
+            await asyncio.sleep(2)
+    
+    live_logger.report_to_channel("info", f"Consumer closed verified.")
+
+async def email_send_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[MongoShip]):
+    # 7. Consume emails from the queue, and send emails to the relevant recipients
+    while not stoppage_event.is_set():
+        try:
+            ship = queue.get_nowait() # get ship from queue
+            if not ship.pairs_with:
+                live_logger.report_to_channel("warning", f"Ship with id {str(ship.id)} has no matching cargos. CRITICAL ERROR SHOULD NOT HAPPEN!!")
+                continue
+                
+            # At this point, we have a MongoShip object, with a list of id's of matching cargos.
+            # That is enough to send our emails.
+
+            # Fetch the cargoes from the database
+            db_cargos = await db["cargos"].find({"_id": {"$in": ship.pairs_with}}).to_list(None)
+            cargos = [MongoCargo(**cargo) for cargo in db_cargos]
+
+            body = render_email_body_text({
+                "cargos": cargos,
+                "ship": ship,
+                "email": ship.email,
+            })
+
+            success = await email_client.send_email(
+                to_email="shipperinho123@gmail.com",
+                subject="Cargo Matching TEST",
+                body=body,
+            )
+
+            if not success:
+                live_logger.report_to_channel("error", f"Error sending email to {ship.email.sender}.")
+                continue
+        
+        except asyncio.QueueEmpty:
+            await asyncio.sleep(2)
+    
+    live_logger.report_to_channel("info", f"Producer closed verified.")
+
 async def queue_capacity_producer(stoppage_event: asyncio.Event, *queues: asyncio.Queue):
     # 3. Check the queue capacity every 5 seconds, and report to the live logger
     from uuid import uuid4
@@ -176,6 +262,12 @@ MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=2000)
 # Message Queue for stage 2 - GPT-3.5 email processing
 MQ_GPT_EMAIL_TO_DB: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=500)
 
+# Message Queue for stage 3 - Item matching
+MQ_ITEM_MATCHING: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=5)
+
+# Message Queue for stage 4 - Email send for Ships with matched cargos
+MQ_EMAIL_SEND: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=5)
+
 # Please respect the complex signature of this dictionary. You have to create your async functions with the specified signature, and add them to the dictionary below.
 MQ_HANDLER: Dict[str, Tuple[
         Callable[[asyncio.Event, asyncio.Queue], Coroutine[Any, Any, None]], 
@@ -188,12 +280,18 @@ MQ_HANDLER: Dict[str, Tuple[
 
     "1_gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB), #temporarily, declare number of tasks in the function name
 
+    "item_matching_producer": (item_matching_producer, asyncio.Event(), MQ_ITEM_MATCHING),
+    "item_matching_consumer": (item_matching_consumer, asyncio.Event(), MQ_ITEM_MATCHING, MQ_EMAIL_SEND), # type: ignore - temporary due to
+
+    "email_send_producer": (email_send_producer, asyncio.Event(), MQ_EMAIL_SEND), # type: ignore - temporary due to "item_matching_consumer
+
+
     # "db_listens_for_new_emails_producer": (db_listens_for_new_emails_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
     # "gpt_email_producer": (gpt_email_producer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB),
 
 
     # temporary helper methods for testing.
-    "queue_capacity_producer": (queue_capacity_producer, asyncio.Event(), MQ_MAILBOX, MQ_GPT_EMAIL_TO_DB),
+    "queue_capacity_producer": (queue_capacity_producer, asyncio.Event(), MQ_MAILBOX, MQ_GPT_EMAIL_TO_DB, MQ_ITEM_MATCHING, MQ_EMAIL_SEND),
     # "flush_queue_producer": (flush_queue, asyncio.Event(), MQ_MAILBOX),
 }
 """
@@ -329,17 +427,148 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
 
     if ships:
         # Insert ships into MongoDB
-        await db["ships"].insert_many(ships)
+        ships_inserted_ids = await db["ships"].insert_many(ships)
+        ship_ids = [str(id) for id in ships_inserted_ids.inserted_ids if id]
+        # Update email object with ship ids
+        mongo_email.extracted_ship_ids = ship_ids
+        # Send update to the database
+        await db["emails"].update_one({"_id": mongo_email.id}, {"$set": {"extracted_ship_ids": ship_ids}})
 
     if cargos:
         # Insert cargos into MongoDB
-        await db["cargos"].insert_many(cargos)
+        cargos_inserted_ids = await db["cargos"].insert_many(cargos)
+        cargo_ids = [str(id) for id in cargos_inserted_ids.inserted_ids if id]
+        mongo_email.extracted_cargo_ids = cargo_ids
+        # Send update to the database
+        await db["emails"].update_one({"_id": mongo_email.id}, {"$set": {"extracted_cargo_ids": cargo_ids}})
     
     live_logger.report_to_channel("gpt", f"Inserted {len(ships)} ships and {len(cargos)} cargos into database.")
     if ignored_entries:
         live_logger.report_to_channel("extra", f"Additionally, ignored {len(ignored_entries)} entries from GPT-3.5. {ignored_entries}")
+    
+async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
+    """Match cargos to a ship, based on the extracted fields."""
 
+    # Try to consider the following:
+    # 1. capacity_int (if specified) - both ship and cargo have a value. make it a match IF capacities are within 10% of each other.
+    # 2. month_int (if specified) - both ship and cargo have a value. make it a match IF months are the same or within 1 month of each other.
+    # 3. port (if specified) - both ship and cargo have a value. cargo has port_from port_to, whilst ship only has port. make it a match IF port is the same as either port_from or port_to.
+    # 4. sea (if specified) - both ship and cargo have a value. cargo has sea_from sea_to, whilst ship only has sea. make it a match IF sea is the same as either sea_from or sea_to.
+    
+    id_projection = {"_id": 1}
 
+    capacity_matches = []
+    if ship.capacity_int:
+        capacity_matches = await db["cargos"].find(
+            {
+                "capacity_int": {
+                    "$gte": ship.capacity_int * 0.9,
+                    "$lte": ship.capacity_int * 1.1
+                }
+            },
+            id_projection
+        ).sort("timestamp_processed", -1)\
+        .limit(200).to_list(200)
+        live_logger.report_to_channel("extra", f"Found {len(capacity_matches)} capacity matches.")
+    
+    month_matches = []
+    if ship.month_int:
+        month_matches = await db["cargos"].find(
+            {
+                "month_int": {
+                    "$gte": ship.month_int - 1,
+                    "$lte": ship.month_int + 1
+                }
+            },
+            id_projection
+        ).sort("timestamp_processed", -1)\
+        .limit(200).to_list(200)
+        live_logger.report_to_channel("extra", f"Found {month_matches} month matches.")
+    
+    port_matches = []
+    if ship.port:
+        port_matches = await db["cargos"].find(
+            {
+                "$or": [
+                    {"port_from": ship.port},
+                    {"port_to": ship.port}
+                ]
+            },
+            id_projection
+        ).sort("timestamp_processed", -1)\
+        .limit(200).to_list(200)
+        
+        live_logger.report_to_channel("extra", f"Found {len(port_matches)} port matches.")
+    
+    sea_matches = []
+    if ship.sea:
+        sea_matches = await db["cargos"].find(
+            {
+                "$or": [
+                    {"sea_from": ship.sea},
+                    {"sea_to": ship.sea}
+                ]
+            },
+            id_projection
+        ).sort("timestamp_processed", -1)\
+        .limit(200).to_list(200)
+
+        live_logger.report_to_channel("extra", f"Found {len(sea_matches)} sea matches.")
+    
+    # Assuming you have already executed the queries and obtained results
+    capacity_matches = set([cargo['_id'] for cargo in capacity_matches])
+    month_matches = set([cargo['_id'] for cargo in month_matches])
+    port_matches = set([cargo['_id'] for cargo in port_matches])
+    sea_matches = set([cargo['_id'] for cargo in sea_matches])
+
+    cargo_id_to_score = {}
+    for cargo_id in capacity_matches:
+        score = 1
+        if cargo_id in month_matches:
+            score += 1
+        if cargo_id in port_matches:
+            score += 1
+        if cargo_id in sea_matches:
+            score += 1
+        
+        cargo_id_to_score[cargo_id] = cargo_id_to_score.get(cargo_id, 0) + score
+    
+    for cargo_id in month_matches:
+        score = 1
+        if cargo_id in port_matches:
+            score += 1
+        if cargo_id in sea_matches:
+            score += 1
+        
+        cargo_id_to_score[cargo_id] = cargo_id_to_score.get(cargo_id, 0) + score
+    
+    for cargo_id in port_matches:
+        score = 1
+        if cargo_id in sea_matches:
+            score += 1
+        
+        cargo_id_to_score[cargo_id] = cargo_id_to_score.get(cargo_id, 0) + score
+    
+    for cargo_id in sea_matches:
+        score = 1
+        
+        cargo_id_to_score[cargo_id] = cargo_id_to_score.get(cargo_id, 0) + score
+    
+    # Sort the cargo_id_to_score dictionary by score, and return the top n results
+    sorted_tuples = sorted(cargo_id_to_score.items(), key=lambda item: item[1], reverse=True)
+
+    # Find the intersection of all the sets
+
+    ids = [tup[0] for tup in sorted_tuples[:max_n]]
+    return ids
+
+def render_email_body_text(data):
+    template_loader = FileSystemLoader(searchpath="templates")
+    env = Environment(loader=template_loader)
+
+    template = env.get_template("email/to_ship.txt")
+    rendered_content = template.render(data)
+    return rendered_content
 
 async def db_listens_for_new_emails_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     """Deprecated. Until it is decided what approach to take with issue #2, this function will not be used."""
