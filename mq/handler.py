@@ -14,10 +14,10 @@ import json
 
 async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted]):
     live_logger.report_to_channel("extra", f"Starting MULTI mailbox read producer.")
-    asyncio.create_task(_mailbox_read_producer(stoppage_event, queue, False))
-    # asyncio.create_task(_mailbox_read_producer(stoppage_event, queue, True))
+    asyncio.create_task(_mailbox_read_producer(stoppage_event, queue, True))
+    # asyncio.create_task(_mailbox_read_producer(stoppage_event, queue, False))
 
-async def _mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted], reverse=False):
+async def _mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted], reverse=True):
     # 1. Read all UNSEEN emails from the mailbox, every 5 seconds, or if email queue is processed.
 
     attempt_interval = 5 # seconds

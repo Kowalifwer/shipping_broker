@@ -69,7 +69,7 @@ class MongoShip(BaseModel):
 
     # Fields to fill on creation
     email: MongoEmail # Email object
-    timestamp_created: Optional[datetime] = datetime.now() # Timestamp of when the ship was created
+    timestamp_created: datetime = Field(default_factory=datetime.now) # Timestamp of when the ship was created
 
     # Fields to calculate on creation (to be used for simple queries)
     capacity_int: Optional[int] # Capacity of the ship in integer form
@@ -99,7 +99,7 @@ class MongoCargo(BaseModel):
 
     # Fields to fill on creation
     email: MongoEmail # Email object
-    timestamp_created: Optional[datetime] = datetime.now() # Timestamp of when the cargo was created
+    timestamp_created: datetime = Field(default_factory=datetime.now) # Timestamp of when the cargo was created
 
     # Extra fields
     pairs_with: Optional[List[str]] = [] # List of ship IDs that this cargo is paired with
