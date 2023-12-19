@@ -23,10 +23,9 @@ async def launch_backgrond_task(background_tasks: BackgroundTasks, action: Liter
     
     # Remove last word after underscore, and capitalize
 
+    # Variabled below only for reference, since later we simply pass *MQ_HANDLER[name] to background_tasks, until a final standard is set for this systems task functions
     task_function = MQ_HANDLER[name][0]
     task_event = MQ_HANDLER[name][1]
-    message_queue = MQ_HANDLER[name][2]
-    remaining_args = MQ_HANDLER[name][3:]
 
     extra_params_temp = {}
     name_sections = name.split("_")

@@ -256,6 +256,24 @@ async def flush_queue(stoppage_event: asyncio.Event, queue: asyncio.Queue):
     
     live_logger.report_to_channel("info", f"Queue flushed.")
 
+async def endless_trash_email_cleaner(stoppage_event: asyncio.Event):
+    """This function will run until told to stop, scanning the mailbox for emails and deleting all the trash."""
+    batch_size = 50
+
+    while not stoppage_event.is_set():
+        async for emails in email_client.endless_email_read_generator(n=99999, batch_size=batch_size, unseen_only=False, most_recent_first=True, remove_undelivered=True, set_to_read=False):
+            live_logger.report_to_channel("trash_emails", f"{len(emails)} emails processed. Deleting {batch_size - len(emails)}/{batch_size} this round.")
+
+            # If process stopped - break out of the infinite generator
+            if stoppage_event.is_set():
+                break
+
+        # If the process finished on its own (i.e all the emails have been read OR n limit has been reached), then wait 20 seconds before starting a new cycle.
+        else:
+            await asyncio.sleep(20)
+
+    live_logger.report_to_channel("info", f"Consumer closed verified.")
+
 # Message Queue for stage 1 - Mailbox read and add to database
 MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=2000)
 
@@ -292,6 +310,7 @@ MQ_HANDLER: Dict[str, Tuple[
 
     # temporary helper methods for testing.
     "queue_capacity_producer": (queue_capacity_producer, asyncio.Event(), MQ_MAILBOX, MQ_GPT_EMAIL_TO_DB, MQ_ITEM_MATCHING, MQ_EMAIL_SEND),
+    "endless_trash_email_cleaner_producer": (endless_trash_email_cleaner, asyncio.Event()),
     # "flush_queue_producer": (flush_queue, asyncio.Event(), MQ_MAILBOX),
 }
 """

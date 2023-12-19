@@ -403,10 +403,6 @@ class EmailClientAzure:
         await self.client.post_batch_request(batch_requests)
 
         return True
-    
-    async def read_emails_and_delete_spam(self, n:int, most_recent_first: bool = True, unseen_only: bool = False):
-        async for emails in self.endless_email_read_generator(n=n, unseen_only=unseen_only, most_recent_first=most_recent_first, remove_undelivered=True, set_to_read=False):
-            pass
 
     # Note: cannot sort by date recieved AND filter by name. Only one or the other.
     async def endless_email_read_generator(self, 
@@ -504,10 +500,8 @@ class EmailClientAzure:
 
             if remove_undelivered:
                 print(f"Excluded and deleted {len(to_delete)} undeliverable emails")
-                live_logger.report_to_channel("info", f"Excluded and deleted {len(to_delete)} undeliverable emails")
 
             print(f"Returning a total of {len(final_message_list)}/{len(message_list)} emails that were fetched from the server.")
-            live_logger.report_to_channel("info", f"Returning a total of {len(final_message_list)}/{len(message_list)} emails that were fetched from the server.")
 
             # Launch a background task to delete and mark emails as read, if necessary
             if set_to_read:
@@ -527,6 +521,7 @@ class EmailClientAzure:
                 if not next_link:
                     live_logger.report_to_channel("extra", f"Retrieval cut short as all emails have been read. Total of {len(messages.value)} emails retrieved, even though {n} were requested.")
                     yield extract_final_message_list_and_launch_postprocessing(messages.value)
+                    return
 
                 yielded_messages_count += len(messages.value)
                 yield extract_final_message_list_and_launch_postprocessing(messages.value)
@@ -541,13 +536,12 @@ class EmailClientAzure:
                             if messages.value:
 
                                 next_link = messages.odata_next_link
-                                print(next_link)
                                 yielded_messages_count += len(messages.value)
                                 yield extract_final_message_list_and_launch_postprocessing(messages.value)
 
                                 if not next_link:
                                     live_logger.report_to_channel("extra", f"Retrieval cut short as all emails have been read. Total of {yielded_messages_count} emails retrieved, even though {n} were requested.")
-                                    break
+                                    return
     
     async def send_email(self, subject: str, body: str, to_email: str) -> bool:
         from msgraph.generated.models.message import Message
