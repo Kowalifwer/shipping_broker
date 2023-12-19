@@ -4,12 +4,15 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
+import argparse
 
 from realtime_status_logger import live_logger
 from mq.handler import setup_to_frontend_template_data, MQ_HANDLER
 
 from mq.api import router as process_manager_router
 from realtime_status_logger import router as logger_router
+
+PORT = 8000
 
 # Setups a lifespan event handler, that can do stuff at startup and shutdown
 @asynccontextmanager
@@ -48,13 +51,15 @@ async def read_root():
 
 @app.get("/info", response_class=HTMLResponse)
 async def live_log(request: Request):
+
     # Provide data to be rendered in the template
     data = {
         "title": "Live Event Logging",
         "message": "Hello, FastAPI!",
         "user_id": live_logger.user_id,
         "channels": live_logger.channels,
-        "buttons": setup_to_frontend_template_data()
+        "buttons": setup_to_frontend_template_data(),
+        "port": STARTUP_ARGS.port,
     }
 
     # Render the template with the provided data
@@ -68,8 +73,19 @@ def shutdown_handler():
 
 app.state.shutdown_handler = shutdown_handler
 
-if __name__ == "__main__":
 
-    #uvicorn main:app --reload
-    uvicorn.run(app, host="0.0.0.0", port=8000, use_colors=True)
-    # uvicorn.run(app)
+# Additional arguments to run the Uvicorn server
+parser = argparse.ArgumentParser()
+
+# Port to run server on, default is 8000
+parser.add_argument("--port", type=int, default=8000, help="port to run server on")
+# Server will auto reload if --reload is passed. Default is False
+parser.add_argument("--reload", action="store_true", help="auto reload server on change")
+
+STARTUP_ARGS = parser.parse_args() # If this is needed in other modules, import it from main.py
+
+if __name__ == "__main__":
+    # Simply type python main.py in terminal to run the server.
+    # Additional arguments can be passed, check STARTUP_ARGS for details
+
+    uvicorn.run("main:app", host="0.0.0.0", port=STARTUP_ARGS.port, reload=STARTUP_ARGS.reload)

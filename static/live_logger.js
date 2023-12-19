@@ -28,11 +28,17 @@ window.addEventListener("load", function (event) {
         return;
     }
 
+    const PORT = document.getElementById("port").value;
+    if (!PORT) {
+        alert("No port found, error fetching.");
+        return;
+    }
+
     let socket;
 
     function socket_handler() {
         if (!socket) {
-            socket = new WebSocket(`ws://localhost:8000/ws/info/${user_id}/`);
+            socket = new WebSocket(`ws://localhost:${PORT}/ws/info/${user_id}/`);
         }
 
         socket.addEventListener("open", function () {

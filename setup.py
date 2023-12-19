@@ -3,7 +3,6 @@ import configparser
 from motor.motor_asyncio import AsyncIOMotorClient
 from openai import AsyncOpenAI
 
-
 from mail import EmailClientAzure
 import mail_init
 
@@ -17,8 +16,6 @@ email_password = config['imap']['pw']
 
 # Default Azure connection key
 default_azure_key = os.getenv("AZURE_KEY", "azure1")
-
-print(default_azure_key)
 
 azure_connection = mail_init.connect_to_azure(config[default_azure_key])
 if isinstance(azure_connection, str):

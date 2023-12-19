@@ -270,6 +270,7 @@ async def endless_trash_email_cleaner(stoppage_event: asyncio.Event):
 
         # If the process finished on its own (i.e all the emails have been read OR n limit has been reached), then wait 20 seconds before starting a new cycle.
         else:
+            live_logger.report_to_channel("trash_emails", f"Email generator exhausted. Waiting 20 seconds before starting a new cycle.")
             await asyncio.sleep(20)
 
     live_logger.report_to_channel("info", f"Consumer closed verified.")
