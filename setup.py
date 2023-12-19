@@ -1,6 +1,8 @@
+import os
 import configparser
 from motor.motor_asyncio import AsyncIOMotorClient
 from openai import AsyncOpenAI
+
 
 from mail import EmailClientAzure
 import mail_init
@@ -13,7 +15,12 @@ config.read('config.cfg')
 email_address = config['imap']['email']
 email_password = config['imap']['pw']
 
-azure_connection = mail_init.connect_to_azure(config["azure1"])
+# Default Azure connection key
+default_azure_key = os.getenv("AZURE_KEY", "azure1")
+
+print(default_azure_key)
+
+azure_connection = mail_init.connect_to_azure(config[default_azure_key])
 if isinstance(azure_connection, str):
     # If the connection is a string, it is an error message. Print it and exit.
     print(azure_connection)
@@ -28,5 +35,5 @@ db = db_hanlder["broker"]
 
 # Instantiate openai client
 openai_client = AsyncOpenAI(
-     api_key=config['openai']['api_key'],
+    api_key=config['openai']['api_key'],
 )
