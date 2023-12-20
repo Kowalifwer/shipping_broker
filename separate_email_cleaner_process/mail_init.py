@@ -7,6 +7,7 @@ from azure.core.credentials_async import AsyncTokenCredential
 from azure.core.credentials import AccessToken
 from typing import Any, Union, List, Optional
 import httpx
+import asyncio
 
 BATCH_REQUEST_LIMIT = 20
 
@@ -70,7 +71,7 @@ class CustomGraphServiceClient(GraphServiceClient):
 
         return "/me"
     
-    async def post_batch_request(self, batch_requests: List[dict]) -> dict:
+    def post_batch_request_no_answer(self, batch_requests: List[dict]) -> None:
         """
         Sends a batch request to the Graph API. Returns the response if successful, dict with status code and error message if not.
         This function will automatically split the batch request into multiple sub-batches if the number of requests exceeds the Azure limit.
@@ -79,42 +80,30 @@ class CustomGraphServiceClient(GraphServiceClient):
             batch_requests: a list of dicts, each dict representing a request to be included in the batch.
         """
         total = 0
-        operation_name = ""
         batches = [batch_requests[i:i + BATCH_REQUEST_LIMIT] for i in range(0, len(batch_requests), BATCH_REQUEST_LIMIT)]
-        if not batches:
-            return {"status": 400, "body": "Batch request is empty. Not sending."}
 
-        if batches:
-            if batches[0]:
-                operation_name = batches[0][0]["method"]
-
-        for i, batch in enumerate(batches, start=1):
+        for _, batch in enumerate(batches, start=1):
             total += len(batch)
-            batch_response = await self._post_batch_request(batch)
-            if batch_response["status"] != 200:
-                return batch_response
-
-        return {"status": 200, "body": "Batch request completed."}
+            asyncio.create_task(self._post_batch_request(batch))
     
-    async def _post_batch_request(self, batch_requests: List[dict]) -> dict:
+    async def _post_batch_request(self, batch_requests: List[dict]) -> None:
         """A helper function for post_batch_request, which sends a single batch request of up to BATCH_REQUEST_LIMIT requests."""
 
         # Send the batch request (async, since it might take some time)
         async with httpx.AsyncClient() as client:
-            batch_response = await client.post(
-                url=f"{self.base_url}/$batch",
-                json={"requests": batch_requests},
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.access_token_str}",
-                },
-            )
-
-            # Check if the batch request was successful
-            if batch_response.status_code != 200:
-                return {"status": batch_response.status_code, "body": batch_response.text}
-            
-            return {"status": batch_response.status_code, "body": batch_response.json()}
+            try:
+                await client.post(
+                    url=f"{self.base_url}/$batch",
+                    json={"requests": batch_requests},
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self.access_token_str}",
+                    },
+                    timeout=60,
+                )
+            except Exception as e:
+                print(f"Exception in _post_batch_request: {e}. continuing...")
+                return
 
 def connect_to_azure(azure_conf) -> Union[CustomGraphServiceClient, str]:
     

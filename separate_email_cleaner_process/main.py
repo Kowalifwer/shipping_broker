@@ -3,6 +3,7 @@ import mail_init
 import configparser
 from typing import List, AsyncGenerator
 from msgraph.generated.users.item.messages.messages_request_builder import MessagesRequestBuilder
+import traceback
 
 # Constants
 MAX_MSG_PER_REQUEST = 250 # Controls the number of messages requested from the Azure Api, per request. Not recommended to go over 100.
@@ -22,7 +23,7 @@ async def main():
                 # If the connection is a string, it is an error message. Print it and exit.
                 print(azure_graph_client)
                 exit()
-            
+
             # Create a task for each azure client
             event = asyncio.Event()
             events.append(event)
@@ -30,7 +31,10 @@ async def main():
             tasks.append(asyncio.create_task(mail_cleaner_process(azure_graph_client, config[key]["name"], event)))
 
         # Wait for all tasks to finish
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*tasks)
+
+        print("-----------------------------------------------")
+        print("All tasks complete. You may now restart the program.")
 
     except Exception as e:
         print(f"Exception in main: {e}. Stopping all mail cleaner processes.")
@@ -43,21 +47,22 @@ async def main():
 
 async def mail_cleaner_process(azure_graph_client, inbox_name, stop_event: asyncio.Event):
     try:
-        async for n_deleted in endless_email_deletion_generator(azure_graph_client):
-            print(f"Deleted {n_deleted}/{MAX_MSG_PER_REQUEST} emails from {inbox_name} inbox.")
+        async for n_deleted in endless_email_deletion_generator(azure_graph_client, inbox_name):
+            print(f"{inbox_name} UPDATE: {n_deleted} emails DELETED.")
             if stop_event.is_set():
-                print(f"Stopping mail cleaner process for {inbox_name} inbox.")
                 return
-            
-            await asyncio.sleep(0.25)
-        else:
-            print(f"Inbox {inbox_name} cleaned!")
+
+            await asyncio.sleep(1)
 
     except Exception as e:
-        print(f"Exception in mailbox cleaner: '{e}'. Stopping mail cleaner process for {inbox_name} inbox.")
+        if not str(e):
+            print(repr(e))
+        else:
+            print(f"Exception in mail_cleaner_process: {e}. Stopping mail cleaner process for {inbox_name} inbox.")
+
         return
 
-async def delete_emails(azure_client, email_ids: List[str]) -> bool:
+def launch_delete_emails_task(azure_client, email_ids: List[str]):
     if not email_ids:
         return True
 
@@ -72,15 +77,13 @@ async def delete_emails(azure_client, email_ids: List[str]) -> bool:
             "url": f"{azure_client.me_url_without_base}/messages/{email_id}",  # Construct the URL for the specific email
         })
 
-    await azure_client.post_batch_request(batch_requests)
-
-    return True
+    azure_client.post_batch_request_no_answer(batch_requests)
 
 # Helper functions
 def subject_reveals_email_is_failed(text: str) -> bool:
     """Returns True if the subject reveals that the email is an undeliverable email, False otherwise."""
 
-    word_list = ["undeliver", "not read", "rejected", "failure", "couldn't be delivered"] # maybe notification? 
+    word_list = ["undeliver", "not read", "rejected", "failure", "couldn't be delivered"] # maybe notification?
 
     lowercase_text = text.lower()
     for word in word_list:
@@ -88,7 +91,8 @@ def subject_reveals_email_is_failed(text: str) -> bool:
             return True
     return False
 
-async def endless_email_deletion_generator(azure_client, 
+async def endless_email_deletion_generator(azure_client,
+    mailbox_name,
     # Below are the parameters for the api call
     # sender_email: Optional[str] = None,
     n: int = 9999,
@@ -158,14 +162,14 @@ async def endless_email_deletion_generator(azure_client,
             next_link = messages.odata_next_link
 
             msg_ids_to_delete = [msg.id for msg in messages.value if msg.subject and subject_reveals_email_is_failed(msg.subject)]
-            
-            asyncio.create_task(delete_emails(azure_client, msg_ids_to_delete))
+
+            launch_delete_emails_task(azure_client, msg_ids_to_delete)
 
             yielded_messages_count += len(messages.value)
             total_deleted_count += len(msg_ids_to_delete)
 
             if not next_link:
-                print(f"All emails have been read! {total_deleted_count}/{yielded_messages_count} trash emails deleted during cleanup.")
+                print(f"{mailbox_name} mailbox cleaned! {total_deleted_count}/{yielded_messages_count} EMAILS CLEANED.")
                 yield len(msg_ids_to_delete)
                 return
 
@@ -174,23 +178,23 @@ async def endless_email_deletion_generator(azure_client,
             if next_link: # If Azure API returns a link to the next page of results - means there are more emails to retrieve.
                 # Create a safe loop for the next n//batch_size requests. This will also handle the case if there are no more emails to retrieve (n_loops will be 0)
                 n_loops = (n-yielded_messages_count)//batch_size
-                
-                for _ in range(n_loops):
+
+                for i in range(n_loops):
                     messages = await azure_client.me.messages.with_url(next_link).get()  # Fetch the next page of results using the url provided in the previous response.
                     if messages:
                         if messages.value:
 
                             msg_ids_to_delete = [msg.id for msg in messages.value if msg.subject and subject_reveals_email_is_failed(msg.subject)]
 
-                            asyncio.create_task(delete_emails(azure_client, msg_ids_to_delete))
+                            launch_delete_emails_task(azure_client, msg_ids_to_delete)
 
                             next_link = messages.odata_next_link
                             yielded_messages_count += len(messages.value)
-                            
+
                             yield len(msg_ids_to_delete)
 
                             if not next_link:
-                                print(f"All emails have been read! {total_deleted_count}/{yielded_messages_count} trash emails deleted during cleanup.")
+                                print(f"{mailbox_name} mailbox cleaned! {total_deleted_count}/{yielded_messages_count} EMAILS CLEANED.")
                                 return
 
 if __name__ == "__main__":
