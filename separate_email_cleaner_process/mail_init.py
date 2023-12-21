@@ -105,6 +105,8 @@ class CustomGraphServiceClient(GraphServiceClient):
                 print(f"Exception in _post_batch_request: {e}. continuing...")
                 return
 
+        await asyncio.sleep(0.20)
+
 def connect_to_azure(azure_conf) -> Union[CustomGraphServiceClient, str]:
     
     scope = ["https://graph.microsoft.com/.default"]
