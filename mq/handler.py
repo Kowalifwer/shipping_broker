@@ -408,7 +408,7 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
 
     for entry in entries:
 
-        entry_type = entry.get("type")
+        entry_type = entry.pop("type", None)
         if entry_type not in ["ship", "cargo"]:
             ignored_entries.append(entry)
             continue
