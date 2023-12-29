@@ -18,6 +18,7 @@ A CARGO object should contain ONLY the following fields:
 6. sea_to: the sea of discharge for cargoes. if not specified, please infer from the port using geographical knowledge
 7. month: the month of shipment for cargoes
 8. commission: the % commision indicated in the email
+9. keyword_data: all important keywords across all the fields, to be tokenized and embedded for similarity matching
 
 A SHIP object should contain ONLY the following fields:
 1. name: the name of the vessel, extracted from the email, e.g. "MV ALICE".
@@ -26,6 +27,7 @@ A SHIP object should contain ONLY the following fields:
 4. port: the port where the ship is currently located
 5. sea: the sea where the ship is currently located. if not specified, please infer from the port using geographical knowledge
 6. month: the month when the ship is available for cargoes
+7. keyword_data: all important keywords across all the fields, to be tokenized and embedded for similarity matching
 
 Example output with 1 ship and 1 cargo extracted from input email:
 
@@ -39,6 +41,7 @@ Example output with 1 ship and 1 cargo extracted from input email:
             "sea": "Mediterranean Sea",
             "month": "DEC",
             "capacity": "37000 dwt",
+            "keyword_data": "M/V AFRICAN BEE open Nemrut Mediterranean Sea DEC 37000 dwt"
         }, 
         {
             "type": "cargo",
@@ -50,6 +53,7 @@ Example output with 1 ship and 1 cargo extracted from input email:
             "sea_to": "Pacific Ocean",
             "month": "OCT,NOV",
             "commission": "2.5%",
+            "keyword_data": "Marble blocks 55000 MT Matarani+Pisco, Peru 1sbp Rizhao or Dafeng Pacific Ocean Pacific Ocean OCT,NOV 2.5%"
         }
     ]
 }
