@@ -89,6 +89,7 @@ class MongoShip(BaseModel):
     sea: Optional[str] # Sea where the ship is currently located
     month: Optional[str] # Month when the ship is available for cargoes
     capacity: Optional[str] # Capacity of the ship
+    keyword_data: Optional[str] # All important keywords across all the fields, to be tokenized and embedded for similarity matching
 
     # Fields to fill on creation
     email: MongoEmail # Email object
@@ -97,6 +98,12 @@ class MongoShip(BaseModel):
     # Fields to calculate on creation (to be used for simple queries)
     capacity_int: Optional[int] # Capacity of the ship in integer form
     month_int: Optional[int] # Month when the ship is available for cargoes in integer form
+
+    # Embeddings to calculate on creation (to be used for similarity queries)
+    sea_embedding: Optional[List[float]] # Embedding of the sea where the ship is currently located
+    port_embedding: Optional[List[float]] # Embedding of the port where the ship is currently located
+
+    general_embedding: Optional[List[float]] # Embedding of the ship's general information
 
     # Extra fields
     pairs_with: Optional[List[str]] = [] # List of cargo IDs that this ship is paired with
@@ -136,6 +143,11 @@ class MongoCargo(BaseModel):
     sea_to: Optional[str] # Sea of discharge
     month: Optional[str] # Month of shipment
     commission: Optional[str] # Commission percentage (e.g., 2.5%)
+    keyword_data: Optional[str] # All important keywords across all the fields, to be tokenized and embedded for similarity matching
+
+    # Fields to fill on creation
+    email: MongoEmail # Email object
+    timestamp_created: datetime = Field(default_factory=datetime.now) # Timestamp of when the cargo was created
 
     # Fields to calculate on creation (to be used for simple queries)
     quantity_min_int: Optional[int] # Capacity of the cargo lower bound in integer form
@@ -144,9 +156,11 @@ class MongoCargo(BaseModel):
     month_int: Optional[int] # Month when the ship is available for cargoes in integer form
     commission_float: Optional[float] # Commission percentage in float form
 
-    # Fields to fill on creation
-    email: MongoEmail # Email object
-    timestamp_created: datetime = Field(default_factory=datetime.now) # Timestamp of when the cargo was created
+    # Embeddings to calculate on creation (to be used for similarity queries)
+    sea_embedding: Optional[List[float]] # Embedding of the sea where the cargo is currently located
+    port_embedding: Optional[List[float]] # Embedding of the port where the cargo is currently located
+
+    general_embedding: Optional[List[float]] # Embedding of the cargo's general information
 
     # Extra fields
     pairs_with: Optional[List[Any]] = Field(default_factory=list) # List of ship IDs that this cargo is paired with
