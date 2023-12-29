@@ -122,5 +122,13 @@ TODO:
 
 3. Improve matching algorithm
     3.1 Consider more rules and think more deeply about them
-    3.2 Consider non-negotiables and how to handle (i.e weight is out of range, or location is a miss-match)    
+    3.2 Consider non-negotiables and how to handle (i.e weight is out of range, or location is a miss-match)
+
+
+
+
+SETUP system for semantic querying too.
+
+
+-Siamese Triplet for embedding training?
 
