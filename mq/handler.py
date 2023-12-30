@@ -499,6 +499,9 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
         # 2. Handle Ship Month vs Cargo Month logic
         score += scoring.month_modifier(ship, cargo)
 
+        # 3. Handle Cargo comission scoring
+        score += scoring.comission_modifier(ship, cargo)
+
 
     # STAGE 3 - EMBEDDINGS SCORE -> CALCULATE SCORE from embeddings, such as port_embedding, sea_embedding, general_embedding...
 
