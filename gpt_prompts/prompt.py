@@ -6,8 +6,9 @@ Important rules:
 2. If you cannot extract a particular expected field from the email, please include that field in the output with an empty string as the value.
 3. Make sure to include all the fields in the output, even if they are empty strings.
 4. Only include EXACTLY the expected fields in the output, and no other fields.
-5. if a particular fields is not specified in the email or not applicable, leave an empty string for that field.
+5. if a particular field is not specified in the email or not applicable, leave an empty string for that field.
 6. If you understood the value for a given field, but it is strange or wrong in the email, please correct it and include your reasonable interpretation for the value.
+7. Include any important data and keywords in the keyword_data field. This includes any excess data that did not fit into the original fields. This field will be used for similarity matching. Please include as much useful data as possible.
 
 A CARGO object should contain ONLY the following fields:
 1. name: the name of the cargo/product being offered, eg. "Marble blocks". 
