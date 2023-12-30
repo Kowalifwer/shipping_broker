@@ -41,15 +41,15 @@ def month_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
         if ship.month == cargo.month:
             score += 2
         elif abs(int(ship.month) - int(cargo.month)) == 1:
-            score += 0.75
+            score += 0
         else:
-            score -= 1
+            score -= 5
 
     return score
 
 def comission_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
     score = 0
-    """Modify score based on ship comission vs cargo comission logic."""
+    """Modify score based on cargo comission logic."""
     if cargo.commission_float:
         if cargo.commission_float <= 1.25:
             score += 5

@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import re
+from embeddings.models import model
+import numpy as np
 
 #re.compile(r"(\d+(?:,\d{3})*(?:\.\d+)?)\s*mts?\b", re.IGNORECASE) # for matching numbers with commas and decimals, followed by "mt" or "mts"
 
@@ -128,6 +130,46 @@ def create_calculated_fields_for_cargo(existing_values: Dict) -> Dict:
         comission = float(match.group(0))
 
     existing_values["commission_float"] = comission
+
+    return existing_values
+
+def create_embeddings_for_cargo(existing_values: Dict) -> Dict:
+    # Handle sea embedding
+    sea_from = existing_values.get("sea_from", "")
+    sea_to = existing_values.get("sea_to", "")
+    sea_from_embeddings = np.random.rand(384).tolist()
+    sea_to_embeddings = np.random.rand(384).tolist()
+
+    if sea_from:
+        sea_from_embeddings = model.encode([sea_from])[0]
+    if sea_to:
+        sea_to_embeddings = model.encode([sea_to])[0]
+    
+    # Give more weight to the SEA FROM embedding, since that is where the cargo is currently located.
+    existing_values["sea_embedding"] = (sea_from_embeddings * 0.67 + sea_to_embeddings * 0.33).tolist()
+
+
+    # Handle port embedding
+    port_from = existing_values.get("port_from", "")
+    port_to = existing_values.get("port_to", "")
+    port_from_embeddings = np.random.rand(384).tolist()
+    port_to_embeddings = np.random.rand(384).tolist()
+
+    if port_from:
+        port_from_embeddings = model.encode([port_from])[0]
+    if port_to:
+        port_to_embeddings = model.encode([port_to])[0]
+    
+    # Give more weight to the PORT FROM embedding, since that is where the cargo is currently located.
+    existing_values["port_embedding"] = (port_from_embeddings * 0.67 + port_to_embeddings * 0.33).tolist()
+
+
+    # Handle general embedding
+    general = existing_values.get("keyword_data", "")
+    if general:
+        existing_values["general_embedding"] = model.encode([general])[0].tolist()
+    else:
+        existing_values["general_embedding"] = np.random.rand(384).tolist()
 
     return existing_values
 

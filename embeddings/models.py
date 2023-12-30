@@ -45,7 +45,9 @@ sentences = [
 embeddings = model.encode(sentences)
 embeddings2 = model2.encode(sentences)
 
-# query_str = "China/Japan"
+print(len(embeddings[0]))
+
+query_str = "China/Japan"
 # query_str = "Black Sea range or med sea"
 # query_str = "East Med/ Black Sea range"
 # Example query vector

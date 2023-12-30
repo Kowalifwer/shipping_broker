@@ -502,11 +502,11 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
         # 3. Handle Cargo comission scoring
         score += scoring.comission_modifier(ship, cargo)
 
-
     # STAGE 3 - EMBEDDINGS SCORE -> CALCULATE SCORE from embeddings, such as port_embedding, sea_embedding, general_embedding...
 
 
     # STAGE 4 - FINAL SCORE -> COMBINE THE SCORES FROM STAGE 2 AND STAGE 3, AND SORT THE CARGOS BY SCORE
+    # Mean rank? Weighted Sum (normalize scores first)? TBD...
 
 
     return []
