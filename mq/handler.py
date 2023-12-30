@@ -6,7 +6,8 @@ from pydantic import ValidationError
 from db import MongoShip, MongoCargo
 from jinja2 import Template, Environment, FileSystemLoader
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+from bson import ObjectId
 
 from setup import email_client, openai_client, db_client
 from realtime_status_logger import live_logger
@@ -167,11 +168,15 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
 
         # Fetch emails from DB, about SHIPS, from most RECENT to least recent, and add them to the queue
         # Make sure the ships "pairs_with" is an empty list, and that the ship has not been processed yet.
+        # From past 3 days
+        date_from = datetime.utcnow() - timedelta(days=3)
         db_cursor = db_client["ships"].find(
             {
                 "pairs_with": [],
+                "timestamp_created": {"$gte": date_from}
             }
-        ).sort("timestamp_processed", -1)
+        ).sort("timestamp_created", -1)
+
         async for ship in db_cursor:
             ship = MongoShip(**ship)
             await queue.put(ship)
@@ -212,7 +217,13 @@ async def item_matching_consumer(stoppage_event: asyncio.Event, queue_from: asyn
             with open(filename, "w") as file:
                 json.dump(existing_data, file, indent=4)
                 
-            ship.pairs_with = [cargo["id"] for cargo in matching_cargos]
+            ship.pairs_with = [ObjectId(cargo["id"]) for cargo in matching_cargos]
+
+            # Update ship in database
+            # res = await db_client["ships"].update_one({"_id": ship.id}, {"$set": {"pairs_with": ship.pairs_with, "timestamp_pairs_updated": datetime.now()}})
+            # if not res.acknowledged:
+            #     live_logger.report_to_channel("error", f"Error updating ship with id {str(ship.id)} in database.")
+            #     continue
 
             while True:
                 try:
@@ -239,7 +250,7 @@ async def email_send_producer(stoppage_event: asyncio.Event, queue: asyncio.Queu
             if not ship.pairs_with:
                 live_logger.report_to_channel("warning", f"Ship with id {str(ship.id)} has no matching cargos. CRITICAL ERROR SHOULD NOT HAPPEN!!")
                 continue
-                
+
             # At this point, we have a MongoShip object, with a list of id's of matching cargos.
             # That is enough to send our emails.
 
@@ -319,7 +330,7 @@ MQ_GPT_EMAIL_TO_DB: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=5
 MQ_ITEM_MATCHING: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=5)
 
 # Message Queue for stage 4 - Email send for Ships with matched cargos
-MQ_EMAIL_SEND: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=5)
+MQ_EMAIL_SEND: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=1)
 
 # Please respect the complex signature of this dictionary. You have to create your async functions with the specified signature, and add them to the dictionary below.
 MQ_HANDLER: Dict[str, Tuple[
@@ -483,7 +494,7 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
         # Update email object with ship ids
         mongo_email.extracted_ship_ids = ship_ids
         # Send update to the database
-        await db_client["emails"].update_one({"_id": mongo_email.id}, {"$set": {"extracted_ship_ids": ship_ids}})
+        res = await db_client["emails"].update_one({"_id": mongo_email.m_id}, {"$set": {"extracted_ship_ids": ship_ids}})
 
     if cargos:
         # Insert cargos into MongoDB
@@ -491,7 +502,7 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
         cargo_ids = [str(id) for id in cargos_inserted_ids.inserted_ids if id]
         mongo_email.extracted_cargo_ids = cargo_ids
         # Send update to the database
-        await db_client["emails"].update_one({"_id": mongo_email.id}, {"$set": {"extracted_cargo_ids": cargo_ids}})
+        await db_client["emails"].update_one({"_id": mongo_email.m_id}, {"$set": {"extracted_cargo_ids": cargo_ids}})
     
     # Update emails timestamp_entities_extracted to now
     await db_client["emails"].update_one({"id": mongo_email.id}, {"$set": {"timestamp_entities_extracted": datetime.now()}})
@@ -517,7 +528,13 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
     # STAGE 1 - HARD FILTERS (DB QUERY) - stuff that will completely disqualify a cargo from being matched with a ship (can be done fully via DB query)
     # TBD... (for now we retrieve all cargos, since we don't have enough data to filter them out)
 
-    db_cargos = await db_client["cargos"].find({}).to_list(None)
+    #fetch cargos from past 3 days only
+    date_from = datetime.now() - timedelta(days=3)
+    db_cargos = await db_client["cargos"].find({
+        # "timestamp_created": {"$gte": date_from}
+    }).sort(
+        "timestamp_created", -1
+    ).to_list(None)
     cargos = [MongoCargo(**cargo) for cargo in db_cargos]
     simple_scores = []
 
@@ -541,6 +558,9 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
 
         # 3. Handle Cargo comission scoring
         score += scoring.comission_modifier(ship, cargo)
+
+        # 4. Handle date created scoring
+        # score += scoring.timestamp_created_modifier(ship, cargo)
 
         simple_scores.append(score)
 
