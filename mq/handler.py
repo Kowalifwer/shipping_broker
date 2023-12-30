@@ -10,6 +10,7 @@ from setup import email_client, openai_client, db
 from realtime_status_logger import live_logger
 from mail import EmailMessageAdapted
 from db import MongoEmail, create_calculated_fields_for_ship, create_calculated_fields_for_cargo
+from mq import scoring
 from gpt_prompts import prompt
 import json
 
@@ -487,48 +488,16 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
         ... # TBD
     }).to_list(None)
     cargos = [MongoCargo(**cargo) for cargo in db_cargos]
-
-    def modify_score_capacity(ship: MongoShip, cargo: MongoCargo) -> int:
-        score = 0
-        """Modify score based on ship capacity vs cargo quantity logic."""
-        if ship.capacity_int:
-            if not (cargo.quantity_min_int and cargo.quantity_max_int):
-                score -= 2
-                return score # penalize the score if cargo quantity is not specified
-            
-            # SHIP TOO SMALL
-            if ship.capacity_int < cargo.quantity_min_int * 0.90:
-                score -= 5
-                return score # heavily penalize the score if ship capacity is less than cargo lower bound
-
-            # SHIP ACCEPTABLE
-            if ship.capacity_int > cargo.quantity_min_int:
-                score += 1
-            
-            # SHIP GOOD
-            if ship.capacity_int > cargo.quantity_max_int * 0.85:
-                score += 1
-
-            # SHIP GREAT
-            if cargo.quantity_max_int * 1.10 >= ship.capacity_int >= cargo.quantity_max_int * 0.95:
-                score += 2
-            
-            # SHIP TOO BIG
-            if ship.capacity_int > cargo.quantity_max_int * 1.5:
-                score -= 2
-            
-            if ship.capacity_int > cargo.quantity_max_int * 2:
-                score -= 5
-            
-        return score
     
     for cargo in cargos:
         score = 0
         # STAGE 2 - BASIC DB FIELDS SCORE -> CALCULATE SCORE from simple fields, such as capacity_int, month_int, comission_float...
 
         # 1. Handle Ship Capacity vs Cargo Quantity logic
-        score += modify_score_capacity(ship, cargo)
-            
+        score += scoring.capacity_modifier(ship, cargo)
+
+        # 2. Handle Ship Month vs Cargo Month logic
+        score += scoring.month_modifier(ship, cargo)
 
 
     # STAGE 3 - EMBEDDINGS SCORE -> CALCULATE SCORE from embeddings, such as port_embedding, sea_embedding, general_embedding...
