@@ -73,6 +73,25 @@ def comission_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
 
     return score
 
+def timestamp_created_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
+    score = 0
+    """Modify score based on cargo date created logic."""
+    if cargo.timestamp_created:
+        # 1-3 days - big boost, 3-7 days small boost, 7-14 days small penalty, 14+ days big penalty
+        days = (cargo.timestamp_created - ship.timestamp_created).days
+        if days <= 3:
+            score += 5
+        elif days <= 7:
+            score += 2
+        elif days <= 14:
+            score += 0
+        elif days <= 30:
+            score -= 2
+        else:
+            score -= 5
+
+    return score
+
 def min_max_scale_robust(data: Iterable, min_val=-0.1, max_val=1) -> np.ndarray:
     data = np.array(data)
 

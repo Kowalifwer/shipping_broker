@@ -39,7 +39,7 @@ We are pleased to inform you that we have found some excellent cargo matches. He
     Quantity_int: {{ cargo.quantity_int }}
     Month_int: {{ cargo.month_int }}
     Comission_float: {{ cargo.comission_float }}
-++++++++++++
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 {% endfor %}
 
 If you have any further questions or if you are interested in any of these matches, please feel free to contact us.
