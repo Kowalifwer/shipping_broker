@@ -69,7 +69,8 @@ class MongoEmail(BaseModel):
     extracted_ship_ids: Optional[List[str]] = Field(default_factory=list) # List of ship IDs extracted from the email
     extracted_cargo_ids: Optional[List[str]] = Field(default_factory=list) # List of cargo IDs extracted from the email
 
-def create_calculated_fields_for_ship(existing_values: Dict) -> Dict:
+def update_ship_entry_with_calculated_fields(existing_values: Dict) -> Dict:
+    """Modifies existing ship object in place, adding calculated fields and embeddings."""
     capacity = extract_number(existing_values.get("capacity", ""))
     # check if capacity is less than 3 digits, then multiply by 1000
     if capacity and capacity < 1000:
@@ -78,6 +79,38 @@ def create_calculated_fields_for_ship(existing_values: Dict) -> Dict:
     # If capacity is not specified, pass an empty string to extract_number, which will return None
     existing_values["capacity_int"] = capacity
     existing_values["month_int"] = extract_month(existing_values.get("month", ""))
+
+    create_embeddings_for_ship(existing_values)
+
+    return existing_values
+
+def create_embeddings_for_ship(existing_values: Dict) -> Dict:
+    """Modifies existing ship object in place, adding embeddings for sea, port, and general information."""
+
+    # Handle sea embedding
+    sea = existing_values.get("sea", "")
+    sea_embeddings = np.random.rand(384).tolist()
+
+    if sea:
+        sea_embeddings = model.encode([sea])[0]
+    
+    existing_values["sea_embedding"] = sea_embeddings.tolist()
+
+    # Handle port embedding
+    port = existing_values.get("port", "")
+    port_embeddings = np.random.rand(384).tolist()
+
+    if port:
+        port_embeddings = model.encode([port])[0]
+    
+    existing_values["port_embedding"] = port_embeddings.tolist()
+
+    # Handle general embedding
+    general = existing_values.get("keyword_data", "")
+    if general:
+        existing_values["general_embedding"] = model.encode([general])[0].tolist()
+    else:
+        existing_values["general_embedding"] = np.random.rand(384).tolist()
 
     return existing_values
 
@@ -114,7 +147,9 @@ class MongoShip(BaseModel):
     class Config:
         extra = 'allow'
 
-def create_calculated_fields_for_cargo(existing_values: Dict) -> Dict:
+def update_cargo_entry_with_calculated_fields(existing_values: Dict) -> Dict:
+    """Modifies existing cargo object in place, adding calculated fields and vector embeddings."""
+
     min_max_weights = extract_weights(existing_values.get("quantity", ""))
     if min_max_weights:
         existing_values["quantity_min_int"] = min_max_weights[0] if min_max_weights[0] >= 1000 else min_max_weights[0] * 1000
@@ -131,9 +166,12 @@ def create_calculated_fields_for_cargo(existing_values: Dict) -> Dict:
 
     existing_values["commission_float"] = comission
 
+    create_embeddings_for_cargo(existing_values)
+
     return existing_values
 
 def create_embeddings_for_cargo(existing_values: Dict) -> Dict:
+    """Modifies existing cargo objects in place, adding embeddings for sea, port, and general information."""
     # Handle sea embedding
     sea_from = existing_values.get("sea_from", "")
     sea_to = existing_values.get("sea_to", "")

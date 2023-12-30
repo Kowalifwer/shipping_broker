@@ -9,7 +9,7 @@ from jinja2 import Template, Environment, FileSystemLoader
 from setup import email_client, openai_client, db
 from realtime_status_logger import live_logger
 from mail import EmailMessageAdapted
-from db import MongoEmail, create_calculated_fields_for_ship, create_calculated_fields_for_cargo
+from db import MongoEmail, update_ship_entry_with_calculated_fields, update_cargo_entry_with_calculated_fields
 from mq import scoring
 from gpt_prompts import prompt
 import json
@@ -419,8 +419,7 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
         if entry_type == "ship":
             try:
                 # Add calculated fields to ship
-                ship_calculated_fields = create_calculated_fields_for_ship(entry)
-                entry.update(ship_calculated_fields)
+                update_ship_entry_with_calculated_fields(entry)
 
                 ship = MongoShip(**entry)
 
@@ -432,8 +431,7 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
         elif entry_type == "cargo":
             try:
                 # Add calculated fields to cargo
-                cargo_calculated_fields = create_calculated_fields_for_cargo(entry)
-                entry.update(cargo_calculated_fields)
+                update_cargo_entry_with_calculated_fields(entry)
 
                 cargo = MongoCargo(**entry)
 
