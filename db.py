@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import re
-from embeddings.models import model
+from embeddings.models import geoloc_model, general_model
 import numpy as np
 
 #re.compile(r"(\d+(?:,\d{3})*(?:\.\d+)?)\s*mts?\b", re.IGNORECASE) # for matching numbers with commas and decimals, followed by "mt" or "mts"
@@ -69,7 +69,7 @@ class MongoEmail(BaseModel):
     extracted_ship_ids: Optional[List[str]] = Field(default_factory=list) # List of ship IDs extracted from the email
     extracted_cargo_ids: Optional[List[str]] = Field(default_factory=list) # List of cargo IDs extracted from the email
 
-def update_ship_entry_with_calculated_fields(existing_values: Dict) -> Dict:
+def update_ship_entry_with_calculated_fields(existing_values: Dict):
     """Modifies existing ship object in place, adding calculated fields and embeddings."""
     capacity = extract_number(existing_values.get("capacity", ""))
     # check if capacity is less than 3 digits, then multiply by 1000
@@ -82,9 +82,7 @@ def update_ship_entry_with_calculated_fields(existing_values: Dict) -> Dict:
 
     create_embeddings_for_ship(existing_values)
 
-    return existing_values
-
-def create_embeddings_for_ship(existing_values: Dict) -> Dict:
+def create_embeddings_for_ship(existing_values: Dict):
     """Modifies existing ship object in place, adding embeddings for sea, port, and general information."""
 
     # Handle sea embedding
@@ -92,7 +90,7 @@ def create_embeddings_for_ship(existing_values: Dict) -> Dict:
     sea_embeddings = np.random.rand(384).tolist()
 
     if sea:
-        sea_embeddings = model.encode([sea])[0]
+        sea_embeddings = geoloc_model.encode([sea])[0]
     
     existing_values["sea_embedding"] = sea_embeddings.tolist()
 
@@ -101,18 +99,16 @@ def create_embeddings_for_ship(existing_values: Dict) -> Dict:
     port_embeddings = np.random.rand(384).tolist()
 
     if port:
-        port_embeddings = model.encode([port])[0]
+        port_embeddings = geoloc_model.encode([port])[0]
     
     existing_values["port_embedding"] = port_embeddings.tolist()
 
     # Handle general embedding
     general = existing_values.get("keyword_data", "")
     if general:
-        existing_values["general_embedding"] = model.encode([general])[0].tolist()
+        existing_values["general_embedding"] = general_model.encode([general])[0].tolist()
     else:
         existing_values["general_embedding"] = np.random.rand(384).tolist()
-
-    return existing_values
 
 class MongoShip(BaseModel):
     # Fields to extract from email
@@ -147,7 +143,7 @@ class MongoShip(BaseModel):
     class Config:
         extra = 'allow'
 
-def update_cargo_entry_with_calculated_fields(existing_values: Dict) -> Dict:
+def update_cargo_entry_with_calculated_fields(existing_values: Dict):
     """Modifies existing cargo object in place, adding calculated fields and vector embeddings."""
 
     min_max_weights = extract_weights(existing_values.get("quantity", ""))
@@ -168,9 +164,7 @@ def update_cargo_entry_with_calculated_fields(existing_values: Dict) -> Dict:
 
     create_embeddings_for_cargo(existing_values)
 
-    return existing_values
-
-def create_embeddings_for_cargo(existing_values: Dict) -> Dict:
+def create_embeddings_for_cargo(existing_values: Dict):
     """Modifies existing cargo objects in place, adding embeddings for sea, port, and general information."""
     # Handle sea embedding
     sea_from = existing_values.get("sea_from", "")
@@ -179,13 +173,12 @@ def create_embeddings_for_cargo(existing_values: Dict) -> Dict:
     sea_to_embeddings = np.random.rand(384).tolist()
 
     if sea_from:
-        sea_from_embeddings = model.encode([sea_from])[0]
+        sea_from_embeddings = geoloc_model.encode([sea_from])[0]
     if sea_to:
-        sea_to_embeddings = model.encode([sea_to])[0]
+        sea_to_embeddings = geoloc_model.encode([sea_to])[0]
     
     # Give more weight to the SEA FROM embedding, since that is where the cargo is currently located.
     existing_values["sea_embedding"] = (sea_from_embeddings * 0.67 + sea_to_embeddings * 0.33).tolist()
-
 
     # Handle port embedding
     port_from = existing_values.get("port_from", "")
@@ -194,22 +187,20 @@ def create_embeddings_for_cargo(existing_values: Dict) -> Dict:
     port_to_embeddings = np.random.rand(384).tolist()
 
     if port_from:
-        port_from_embeddings = model.encode([port_from])[0]
+        port_from_embeddings = geoloc_model.encode([port_from])[0]
     if port_to:
-        port_to_embeddings = model.encode([port_to])[0]
+        port_to_embeddings = geoloc_model.encode([port_to])[0]
     
     # Give more weight to the PORT FROM embedding, since that is where the cargo is currently located.
     existing_values["port_embedding"] = (port_from_embeddings * 0.67 + port_to_embeddings * 0.33).tolist()
 
-
     # Handle general embedding
     general = existing_values.get("keyword_data", "")
     if general:
-        existing_values["general_embedding"] = model.encode([general])[0].tolist()
+        existing_values["general_embedding"] = general_model.encode([general])[0].tolist()
     else:
         existing_values["general_embedding"] = np.random.rand(384).tolist()
 
-    return existing_values
 
 class MongoCargo(BaseModel):
     id: Optional[Any] = Field(alias="_id", default=None) # ID of the cargo generated by MongoDB
