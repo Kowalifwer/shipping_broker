@@ -63,7 +63,9 @@ class MongoEmail(BaseModel):
     date_received: Optional[str] # Timestamp of when the email was received
     body: Optional[str] # Content of the email
 
-    timestamp_processed: Optional[datetime] # Timestamp of when the email was processed
+    timestamp_added_to_db: Optional[datetime] = None # Timestamp of when the email read from the inbox and ADDED to the database.
+
+    timestamp_entities_extracted: Optional[datetime] = None # Timestamp of when the entities were extracted from the email
 
     # Extra fields to be populated by the email processing pipeline
     extracted_ship_ids: Optional[List[str]] = Field(default_factory=list) # List of ship IDs extracted from the email

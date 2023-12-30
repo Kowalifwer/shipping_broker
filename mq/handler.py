@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from db import MongoShip, MongoCargo
 from jinja2 import Template, Environment, FileSystemLoader
 import json
+from datetime import datetime
 
 from setup import email_client, openai_client, db_client
 from realtime_status_logger import live_logger
@@ -86,8 +87,11 @@ async def _mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
 
     live_logger.report_to_channel("info", f"Producer closed verified.")
 
-async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue_to_fetch_from: asyncio.Queue[EmailMessageAdapted], queue_to_add_to: asyncio.Queue[EmailMessageAdapted]):
+async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue_to_fetch_from: asyncio.Queue[EmailMessageAdapted], queue_to_add_to: asyncio.Queue[EmailMessageAdapted], default=True):
     # 2. Process all emails in the queue, every 10 seconds, or if email queue is processed.
+    
+    # create a fake queue, by pulling most recent emails from the database
+
     while not stoppage_event.is_set():
         try:
             email = queue_to_fetch_from.get_nowait() # get email from queue
@@ -98,7 +102,7 @@ async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue_to_fetch_fr
         email_added = await add_email_to_db(email)
         if email_added == False:
             continue
-        
+
         # TODO: This currently also acts as a producer (until it is decided what the final approach will be) which can cause bottlenecks. 
         # Refer to: https://github.com/Kowalifwer/shipping_broker/issues/2
         while True:
@@ -114,16 +118,24 @@ async def mailbox_read_consumer(stoppage_event: asyncio.Event, queue_to_fetch_fr
     live_logger.report_to_channel("info", f"Consumer closed verified.")
 
 async def gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted], n_tasks: int = 1):
-    # Summon n consumers to run concurrently, and turn emails from queue into entities using GPT-3 (THIS IS ALMOST FULLY A I/O BOUND TASK, so should not be too CPU intensive)
-    for _ in range(n_tasks):
-        asyncio.create_task(_gpt_email_consumer(stoppage_event, queue))
-    
     live_logger.report_to_channel("gpt", f"Summoned {n_tasks} GPT-3 email consumers.")
+    # Summon n consumers to run concurrently, and turn emails from queue into entities using GPT-3 (THIS IS ALMOST FULLY A I/O BOUND TASK, so should not be too CPU intensive)
 
-async def _gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted]):
-    # 5. Consume emails from the queue, and generate a response using GPT-3
-    live_logger.report_to_channel("gpt", f"Starting GPT-3 email consumer.")
+    semaphore = asyncio.Semaphore(n_tasks) # limit the number of concurrent tasks to n_tasks * 10
     while not stoppage_event.is_set():
+        tasks = [asyncio.create_task(_gpt_email_consumer(stoppage_event, queue, semaphore)) for _ in range(n_tasks * 10)]
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+    live_logger.report_to_channel("gpt", f"Consumer closed verified.")
+
+async def _gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted], semaphore: asyncio.Semaphore):
+    async with semaphore:
+        # 5. Consume emails from the queue, and generate a response using GPT-3
+        if stoppage_event.is_set():
+            return
+
         try:
             email = queue.get_nowait() # get email from queue
             gpt_response = await email_to_entities_via_openai(email)
@@ -136,7 +148,7 @@ async def _gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queu
             await insert_gpt_entries_into_db(entries, email)
 
             live_logger.report_to_channel("gpt", f"Email with id {email.id} processed by GPT-3.5. Entities added to database. Sleeping for 5 seconds.")
-            await asyncio.sleep(5)
+            await asyncio.sleep(2)
 
         except asyncio.QueueEmpty:
             await asyncio.sleep(2)
@@ -319,7 +331,7 @@ MQ_HANDLER: Dict[str, Tuple[
     "mailbox_read_consumer": (mailbox_read_consumer, asyncio.Event(), MQ_MAILBOX, MQ_GPT_EMAIL_TO_DB), # type: ignore - temporary due to https://github.com/Kowalifwer/shipping_broker/issues/2
 
 
-    "1_gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB), #temporarily, declare number of tasks in the function name
+    "5_gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB), #temporarily, declare number of tasks in the function name
 
     "item_matching_producer": (item_matching_producer, asyncio.Event(), MQ_ITEM_MATCHING),
     "item_matching_consumer": (item_matching_consumer, asyncio.Event(), MQ_ITEM_MATCHING, MQ_EMAIL_SEND), # type: ignore - temporary due to
@@ -376,7 +388,10 @@ async def add_email_to_db(email_message: EmailMessageAdapted) -> Union[str, bool
         # TODO: consider updating the fields on the duplicate object, such as date_recieved or store a counter of duplicates, if this into will be useful later.
         return False
 
-    inserted_result = await db_client["emails"].insert_one(email_message.mongo_db_object.model_dump())
+    mongo_email = email_message.mongo_db_object
+    mongo_email.timestamp_added_to_db = datetime.now()
+
+    inserted_result = await db_client["emails"].insert_one(mongo_email.model_dump())
 
     if not inserted_result.acknowledged:
         live_logger.report_to_channel("error", f"Error adding email to database.")
@@ -461,9 +476,6 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
                 ignored_entries.append(entry)
                 print("Error validating cargo. skipping addition", e)
 
-    # Insert email into MongoDB
-    await db_client["emails"].insert_one(mongo_email.model_dump())
-
     if ships:
         # Insert ships into MongoDB
         ships_inserted_ids = await db_client["ships"].insert_many(ships)
@@ -480,6 +492,9 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
         mongo_email.extracted_cargo_ids = cargo_ids
         # Send update to the database
         await db_client["emails"].update_one({"_id": mongo_email.id}, {"$set": {"extracted_cargo_ids": cargo_ids}})
+    
+    # Update emails timestamp_entities_extracted to now
+    await db_client["emails"].update_one({"id": mongo_email.id}, {"$set": {"timestamp_entities_extracted": datetime.now()}})
     
     live_logger.report_to_channel("gpt", f"Inserted {len(ships)} ships and {len(cargos)} cargos into database.")
     if ignored_entries:

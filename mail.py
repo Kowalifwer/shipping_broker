@@ -204,7 +204,6 @@ class EmailMessageAdapted(EmailMessageLike):
                 sender=self.sender,
                 recipients=self.recipients,
                 date_received=self.date_received,
-                timestamp_processed=datetime.now(),
                 body=self.body,
             )
 
