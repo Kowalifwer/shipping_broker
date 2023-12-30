@@ -87,26 +87,26 @@ def create_embeddings_for_ship(existing_values: Dict):
 
     # Handle sea embedding
     sea = existing_values.get("sea", "")
-    sea_embeddings = np.random.rand(384).tolist()
+    sea_embeddings = np.random.rand(384)
 
     if sea:
-        sea_embeddings = geoloc_model.encode([sea])[0]
+        sea_embeddings = geoloc_model.encode([sea], convert_to_numpy=True)[0]
     
     existing_values["sea_embedding"] = sea_embeddings.tolist()
 
     # Handle port embedding
     port = existing_values.get("port", "")
-    port_embeddings = np.random.rand(384).tolist()
+    port_embeddings = np.random.rand(384)
 
     if port:
-        port_embeddings = geoloc_model.encode([port])[0]
+        port_embeddings = geoloc_model.encode([port], convert_to_numpy=True)[0]
     
     existing_values["port_embedding"] = port_embeddings.tolist()
 
     # Handle general embedding
     general = existing_values.get("keyword_data", "")
     if general:
-        existing_values["general_embedding"] = general_model.encode([general])[0].tolist()
+        existing_values["general_embedding"] = general_model.encode([general], convert_to_numpy=True)[0].tolist()
     else:
         existing_values["general_embedding"] = np.random.rand(384).tolist()
 
@@ -120,7 +120,7 @@ class MongoShip(BaseModel):
     sea: Optional[str] # Sea where the ship is currently located
     month: Optional[str] # Month when the ship is available for cargoes
     capacity: Optional[str] # Capacity of the ship
-    keyword_data: Optional[str] # All important keywords across all the fields, to be tokenized and embedded for similarity matching
+    keyword_data: Optional[str] = "" # All important keywords across all the fields, to be tokenized and embedded for similarity matching
 
     # Fields to fill on creation
     email: MongoEmail # Email object
@@ -150,6 +150,9 @@ def update_cargo_entry_with_calculated_fields(existing_values: Dict):
     if min_max_weights:
         existing_values["quantity_min_int"] = min_max_weights[0] if min_max_weights[0] >= 1000 else min_max_weights[0] * 1000
         existing_values["quantity_max_int"] = min_max_weights[1] if min_max_weights[1] >= 1000 else min_max_weights[1] * 1000
+    else:
+        existing_values["quantity_min_int"] = None
+        existing_values["quantity_max_int"] = None
 
     # If capacity is not specified, pass an empty string to extract_number, which will return None
     existing_values["month_int"] = extract_month(existing_values.get("month", ""))
@@ -169,27 +172,27 @@ def create_embeddings_for_cargo(existing_values: Dict):
     # Handle sea embedding
     sea_from = existing_values.get("sea_from", "")
     sea_to = existing_values.get("sea_to", "")
-    sea_from_embeddings = np.random.rand(384).tolist()
-    sea_to_embeddings = np.random.rand(384).tolist()
+    sea_from_embeddings = np.random.rand(384)
+    sea_to_embeddings = np.random.rand(384)
 
     if sea_from:
-        sea_from_embeddings = geoloc_model.encode([sea_from])[0]
+        sea_from_embeddings = geoloc_model.encode([sea_from], convert_to_numpy=True)[0]
     if sea_to:
-        sea_to_embeddings = geoloc_model.encode([sea_to])[0]
-    
+        sea_to_embeddings = geoloc_model.encode([sea_to], convert_to_numpy=True)[0]
+
     # Give more weight to the SEA FROM embedding, since that is where the cargo is currently located.
     existing_values["sea_embedding"] = (sea_from_embeddings * 0.67 + sea_to_embeddings * 0.33).tolist()
 
     # Handle port embedding
     port_from = existing_values.get("port_from", "")
     port_to = existing_values.get("port_to", "")
-    port_from_embeddings = np.random.rand(384).tolist()
-    port_to_embeddings = np.random.rand(384).tolist()
+    port_from_embeddings = np.random.rand(384)
+    port_to_embeddings = np.random.rand(384)
 
     if port_from:
-        port_from_embeddings = geoloc_model.encode([port_from])[0]
+        port_from_embeddings = geoloc_model.encode([port_from], convert_to_numpy=True)[0]
     if port_to:
-        port_to_embeddings = geoloc_model.encode([port_to])[0]
+        port_to_embeddings = geoloc_model.encode([port_to], convert_to_numpy=True)[0]
     
     # Give more weight to the PORT FROM embedding, since that is where the cargo is currently located.
     existing_values["port_embedding"] = (port_from_embeddings * 0.67 + port_to_embeddings * 0.33).tolist()
@@ -197,7 +200,7 @@ def create_embeddings_for_cargo(existing_values: Dict):
     # Handle general embedding
     general = existing_values.get("keyword_data", "")
     if general:
-        existing_values["general_embedding"] = general_model.encode([general])[0].tolist()
+        existing_values["general_embedding"] = general_model.encode([general], convert_to_numpy=True)[0].tolist()
     else:
         existing_values["general_embedding"] = np.random.rand(384).tolist()
 
@@ -214,7 +217,7 @@ class MongoCargo(BaseModel):
     sea_to: Optional[str] # Sea of discharge
     month: Optional[str] # Month of shipment
     commission: Optional[str] # Commission percentage (e.g., 2.5%)
-    keyword_data: Optional[str] # All important keywords across all the fields, to be tokenized and embedded for similarity matching
+    keyword_data: Optional[str] = "" # All important keywords across all the fields, to be tokenized and embedded for similarity matching
 
     # Fields to fill on creation
     email: MongoEmail # Email object

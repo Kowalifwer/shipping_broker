@@ -5,14 +5,14 @@ from openai import OpenAIError
 from pydantic import ValidationError
 from db import MongoShip, MongoCargo
 from jinja2 import Template, Environment, FileSystemLoader
+import json
 
-from setup import email_client, openai_client, db
+from setup import email_client, openai_client, db_client
 from realtime_status_logger import live_logger
 from mail import EmailMessageAdapted
 from db import MongoEmail, update_ship_entry_with_calculated_fields, update_cargo_entry_with_calculated_fields
 from mq import scoring
 from gpt_prompts import prompt
-import json
 
 async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted]):
     live_logger.report_to_channel("extra", f"Starting MULTI mailbox read producer.")
@@ -155,7 +155,7 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
 
         # Fetch emails from DB, about SHIPS, from most RECENT to least recent, and add them to the queue
         # Make sure the ships "pairs_with" is an empty list, and that the ship has not been processed yet.
-        db_cursor = db["ships"].find(
+        db_cursor = db_client["ships"].find(
             {
                 "pairs_with": [],
             }
@@ -178,8 +178,29 @@ async def item_matching_consumer(stoppage_event: asyncio.Event, queue_from: asyn
             if not matching_cargos:
                 live_logger.report_to_channel("warning", f"No matching cargos found for ship with id {str(ship.id)}.")
                 continue
+            
+            filename = "example_matches.json"
+            try:
+                with open(filename, "r") as file:
+                    existing_data = json.load(file)
+            except FileNotFoundError:
+                existing_data = []
+            
+
+            existing_data.append({
+                    "ship": ship.name,
+                    "ship_port": ship.port,
+                    "ship_sea": ship.sea,
+                    "ship_month": ship.month,
+                    "ship_email_contents": ship.email.body,
+                    "ship_quantity": ship.capacity_int,
+                    "matching_cargos": matching_cargos
+                })
+
+            with open(filename, "w") as file:
+                json.dump(existing_data, file, indent=4)
                 
-            ship.pairs_with = matching_cargos
+            ship.pairs_with = [cargo["id"] for cargo in matching_cargos]
 
             while True:
                 try:
@@ -211,7 +232,7 @@ async def email_send_producer(stoppage_event: asyncio.Event, queue: asyncio.Queu
             # That is enough to send our emails.
 
             # Fetch the cargoes from the database
-            db_cargos = await db["cargos"].find({"_id": {"$in": ship.pairs_with}}).to_list(None)
+            db_cargos = await db_client["cargos"].find({"_id": {"$in": ship.pairs_with}}).to_list(None)
             cargos = [MongoCargo(**cargo) for cargo in db_cargos]
 
             body = render_email_body_text({
@@ -340,7 +361,7 @@ async def add_email_to_db(email_message: EmailMessageAdapted) -> Union[str, bool
     """Add email to database, if it doesn't already exist. Return True if added, False if already exists."""
 
     try:
-        email_in_db = await db["emails"].find_one({
+        email_in_db = await db_client["emails"].find_one({
             "$or": [
                 {"id": email_message.id},
                 {"body": email_message.body}
@@ -355,7 +376,7 @@ async def add_email_to_db(email_message: EmailMessageAdapted) -> Union[str, bool
         # TODO: consider updating the fields on the duplicate object, such as date_recieved or store a counter of duplicates, if this into will be useful later.
         return False
 
-    inserted_result = await db["emails"].insert_one(email_message.mongo_db_object.model_dump())
+    inserted_result = await db_client["emails"].insert_one(email_message.mongo_db_object.model_dump())
 
     if not inserted_result.acknowledged:
         live_logger.report_to_channel("error", f"Error adding email to database.")
@@ -440,26 +461,25 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
                 ignored_entries.append(entry)
                 print("Error validating cargo. skipping addition", e)
 
-
     # Insert email into MongoDB
-    await db["emails"].insert_one(mongo_email.model_dump())
+    await db_client["emails"].insert_one(mongo_email.model_dump())
 
     if ships:
         # Insert ships into MongoDB
-        ships_inserted_ids = await db["ships"].insert_many(ships)
+        ships_inserted_ids = await db_client["ships"].insert_many(ships)
         ship_ids = [str(id) for id in ships_inserted_ids.inserted_ids if id]
         # Update email object with ship ids
         mongo_email.extracted_ship_ids = ship_ids
         # Send update to the database
-        await db["emails"].update_one({"_id": mongo_email.id}, {"$set": {"extracted_ship_ids": ship_ids}})
+        await db_client["emails"].update_one({"_id": mongo_email.id}, {"$set": {"extracted_ship_ids": ship_ids}})
 
     if cargos:
         # Insert cargos into MongoDB
-        cargos_inserted_ids = await db["cargos"].insert_many(cargos)
+        cargos_inserted_ids = await db_client["cargos"].insert_many(cargos)
         cargo_ids = [str(id) for id in cargos_inserted_ids.inserted_ids if id]
         mongo_email.extracted_cargo_ids = cargo_ids
         # Send update to the database
-        await db["emails"].update_one({"_id": mongo_email.id}, {"$set": {"extracted_cargo_ids": cargo_ids}})
+        await db_client["emails"].update_one({"_id": mongo_email.id}, {"$set": {"extracted_cargo_ids": cargo_ids}})
     
     live_logger.report_to_channel("gpt", f"Inserted {len(ships)} ships and {len(cargos)} cargos into database.")
     if ignored_entries:
@@ -482,12 +502,19 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
     # STAGE 1 - HARD FILTERS (DB QUERY) - stuff that will completely disqualify a cargo from being matched with a ship (can be done fully via DB query)
     # TBD... (for now we retrieve all cargos, since we don't have enough data to filter them out)
 
-    db_cargos = await db["cargos"].find({
-        ... # TBD
-    }).to_list(None)
+    db_cargos = await db_client["cargos"].find({}).to_list(None)
     cargos = [MongoCargo(**cargo) for cargo in db_cargos]
+    simple_scores = []
+
+    port_embeddings = []
+    sea_embeddings = []
+    general_embeddings = []
     
     for cargo in cargos:
+        port_embeddings.append(cargo.port_embedding)
+        sea_embeddings.append(cargo.sea_embedding)
+        general_embeddings.append(cargo.general_embedding)
+
         score = 0
         # STAGE 2 - BASIC DB FIELDS SCORE -> CALCULATE SCORE from simple fields, such as capacity_int, month_int, comission_float...
 
@@ -500,15 +527,50 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
         # 3. Handle Cargo comission scoring
         score += scoring.comission_modifier(ship, cargo)
 
-    # STAGE 3 - EMBEDDINGS SCORE -> CALCULATE SCORE from embeddings, such as port_embedding, sea_embedding, general_embedding...
+        simple_scores.append(score)
 
+    # STAGE 3 - EMBEDDINGS SCORE -> CALCULATE SCORE from embeddings, such as port_embedding, sea_embedding, general_embedding...
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    # Normalize simple scores based on max and min values in the list
+
+    simple_scores = scoring.min_max_scale_robust(simple_scores, -0.1, 1) # Normalized to be between -0.1 and 1.0
+
+    # simple_scores
+    sea_scores = cosine_similarity([ship.sea_embedding], sea_embeddings)[0]
+    port_scores = cosine_similarity([ship.port_embedding], port_embeddings)[0]
+    general_scores = cosine_similarity([ship.general_embedding], general_embeddings)[0]
 
     # STAGE 4 - FINAL SCORE -> COMBINE THE SCORES FROM STAGE 2 AND STAGE 3, AND SORT THE CARGOS BY SCORE
     # Mean rank? Weighted Sum (normalize scores first)? TBD...
+    final_scores = [
+        {
+            "id": str(cargos[i].id),
+            "cargo_capacity_max": cargos[i].quantity_max_int,
+            "cargo_capacity_min": cargos[i].quantity_min_int,
+            "cargo_month": cargos[i].month,
+            "cargo_port_from": cargos[i].port_from,
+            "cargo_port_to": cargos[i].port_to,
+            "cargo_sea_from": cargos[i].sea_from,
+            "cargo_sea_to": cargos[i].sea_to,
+            "cargo_commission": cargos[i].commission,
 
+            "total_score": sum(scores),
+            "simple_score": simple_scores[i],
+            "port_score": port_scores[i],
+            "sea_score": sea_scores[i],
+            "general_score": general_scores[i],
+            "email_body": cargos[i].email.body,
+        } for i, scores in enumerate(zip(
+            simple_scores, # Simple score (db scores) are important - hence should be multiplied
+            port_scores,
+            sea_scores,
+            general_scores
+        )
+    )]
+    final_scores.sort(key=lambda x: x["total_score"], reverse=True)
 
-    return []
-
+    return final_scores[:max_n]
 
 def render_email_body_text(data):
     template_loader = FileSystemLoader(searchpath="templates")
@@ -530,7 +592,7 @@ async def db_listens_for_new_emails_producer(stoppage_event: asyncio.Event, queu
     # But only if the initialized node had the proper config that allows for replica sets. Check mongo-setup mongod.conf for commented out example how I did it locally.
     # More info: https://docs.mongodb.com/manual/changeStreams/
 
-    collection = db["emails"]
+    collection = db_client["emails"]
     async with collection.watch() as stream:
         print("Listening for new emails in database.")
         async for change in stream:

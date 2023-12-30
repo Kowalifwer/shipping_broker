@@ -49,8 +49,6 @@ sentences = [
 embeddings = model.encode(sentences)
 embeddings2 = model2.encode(sentences)
 
-print(len(embeddings[0]))
-
 query_str = "China/Japan"
 # query_str = "Black Sea range or med sea"
 # query_str = "East Med/ Black Sea range"
@@ -66,5 +64,5 @@ similarity_scores_2 = cosine_similarity([query_vector2], embeddings2)
 combined_similarity_scores = np.concatenate([similarity_scores, similarity_scores_2], axis=0)
 
 # Output the combined similarity scores matrix
-for i in range(len(sentences)):
-    print(f"{sentences[i]} \t {combined_similarity_scores[0][i]} \t {combined_similarity_scores[1][i]}")
+# for i in range(len(sentences)):
+#     print(f"{sentences[i]} \t {combined_similarity_scores[0][i]} \t {combined_similarity_scores[1][i]}")

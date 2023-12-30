@@ -1,4 +1,6 @@
+from typing import Iterable
 from db import MongoCargo, MongoShip
+import numpy as np
 
 def capacity_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
     score = 0
@@ -19,11 +21,11 @@ def capacity_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
         
         # SHIP GOOD
         if ship.capacity_int > cargo.quantity_max_int * 0.85:
-            score += 1
+            score += 2
 
         # SHIP GREAT
         if cargo.quantity_max_int * 1.10 >= ship.capacity_int >= cargo.quantity_max_int * 0.95:
-            score += 2
+            score += 4
         
         # SHIP TOO BIG
         if ship.capacity_int > cargo.quantity_max_int * 1.5:
@@ -37,13 +39,18 @@ def capacity_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
 def month_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
     score = 0
     """Modify score based on ship month vs cargo month logic."""
-    if ship.month and cargo.month:
-        if ship.month == cargo.month:
-            score += 2
-        elif abs(int(ship.month) - int(cargo.month)) == 1:
+    if not ship.month_int:
+        return score
+
+    if cargo.month_int:
+        if ship.month_int == cargo.month_int:
+            score += 3
+        elif abs(ship.month_int - cargo.month_int) == 1:
             score += 0
         else:
             score -= 5
+    else:
+        score -= 2
 
     return score
 
@@ -52,7 +59,7 @@ def comission_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
     """Modify score based on cargo comission logic."""
     if cargo.commission_float:
         if cargo.commission_float <= 1.25:
-            score += 5
+            score += 6
         elif cargo.commission_float <= 2.5:
             score += 3
         elif cargo.commission_float <= 3.75:
@@ -61,7 +68,18 @@ def comission_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
             score += 0
         elif cargo.commission_float <= 5:
             score -= 1
-        else: # >4 %
-            score -= 5
+        else: # >5 %
+            score -= 6
 
     return score
+
+def min_max_scale_robust(data: Iterable, min_val=-0.1, max_val=1) -> np.ndarray:
+    data = np.array(data)
+
+    median = np.median(data)
+    q25, q75 = np.percentile(data, [25, 75])
+    iqr = q75 - q25
+    scaled_data = (data - median) / iqr
+    scaled_data = np.clip(scaled_data, -1.0, 1.0)
+    scaled_data = 0.5 * (scaled_data + 1.0) * (max_val - min_val) + min_val
+    return scaled_data
