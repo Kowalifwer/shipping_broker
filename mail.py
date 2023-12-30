@@ -568,7 +568,7 @@ class EmailClientAzure:
             subject=subject,
             body=ItemBody(
                 content=body,
-                content_type=BodyType.Text
+                content_type=BodyType.Html,
             ),
             to_recipients=[Recipient(email_address=EmailAddress(address=to_email))],
         )

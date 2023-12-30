@@ -598,9 +598,9 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
             "email_body": cargos[i].email.body,
         } for i, scores in enumerate(zip(
             simple_scores, # Simple score (db scores) are important - hence should be multiplied
-            port_scores,
+            port_scores * 1.25,
             sea_scores,
-            general_scores
+            general_scores * 1.75
         )
     )]
     final_scores.sort(key=lambda x: x["total_score"], reverse=True)
@@ -611,7 +611,7 @@ def render_email_body_text(data):
     template_loader = FileSystemLoader(searchpath="templates")
     env = Environment(loader=template_loader)
 
-    template = env.get_template("email/to_ship.txt")
+    template = env.get_template("email/to_ship.html")
     rendered_content = template.render(data)
     return rendered_content
 
