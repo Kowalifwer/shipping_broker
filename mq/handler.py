@@ -475,112 +475,70 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
     # 3. port (if specified) - both ship and cargo have a value. cargo has port_from port_to, whilst ship only has port. make it a match IF port is the same as either port_from or port_to.
     # 4. sea (if specified) - both ship and cargo have a value. cargo has sea_from sea_to, whilst ship only has sea. make it a match IF sea is the same as either sea_from or sea_to.
     
-    id_projection = {"_id": 1}
+    # Ship quantity_min_int and quantity_max_int.
+    # Ship month_int
+    # Ship port_to, port_from
+    # Ship sea_to, sea_from
 
-    capacity_matches = []
-    if ship.capacity_int:
-        capacity_matches = await db["cargos"].find(
-            {
-                "capacity_int": {
-                    "$gte": ship.capacity_int * 0.9,
-                    "$lte": ship.capacity_int * 1.1
-                }
-            },
-            id_projection
-        ).sort("timestamp_processed", -1)\
-        .limit(200).to_list(200)
-        live_logger.report_to_channel("extra", f"Found {len(capacity_matches)} capacity matches.")
-    
-    month_matches = []
-    if ship.month_int:
-        month_matches = await db["cargos"].find(
-            {
-                "month_int": {
-                    "$gte": ship.month_int - 1,
-                    "$lte": ship.month_int + 1
-                }
-            },
-            id_projection
-        ).sort("timestamp_processed", -1)\
-        .limit(200).to_list(200)
-        live_logger.report_to_channel("extra", f"Found {month_matches} month matches.")
-    
-    port_matches = []
-    if ship.port:
-        port_matches = await db["cargos"].find(
-            {
-                "$or": [
-                    {"port_from": ship.port},
-                    {"port_to": ship.port}
-                ]
-            },
-            id_projection
-        ).sort("timestamp_processed", -1)\
-        .limit(200).to_list(200)
-        
-        live_logger.report_to_channel("extra", f"Found {len(port_matches)} port matches.")
-    
-    sea_matches = []
-    if ship.sea:
-        sea_matches = await db["cargos"].find(
-            {
-                "$or": [
-                    {"sea_from": ship.sea},
-                    {"sea_to": ship.sea}
-                ]
-            },
-            id_projection
-        ).sort("timestamp_processed", -1)\
-        .limit(200).to_list(200)
+    # STAGE 1 - HARD FILTERS (DB QUERY) - stuff that will completely disqualify a cargo from being matched with a ship (can be done fully via DB query)
+    # TBD... (for now we retrieve all cargos, since we don't have enough data to filter them out)
 
-        live_logger.report_to_channel("extra", f"Found {len(sea_matches)} sea matches.")
-    
-    # Assuming you have already executed the queries and obtained results
-    capacity_matches = set([cargo['_id'] for cargo in capacity_matches])
-    month_matches = set([cargo['_id'] for cargo in month_matches])
-    port_matches = set([cargo['_id'] for cargo in port_matches])
-    sea_matches = set([cargo['_id'] for cargo in sea_matches])
+    db_cargos = await db["cargos"].find({
+        ... # TBD
+    }).to_list(None)
+    cargos = [MongoCargo(**cargo) for cargo in db_cargos]
 
-    cargo_id_to_score = {}
-    for cargo_id in capacity_matches:
-        score = 1
-        if cargo_id in month_matches:
-            score += 1
-        if cargo_id in port_matches:
-            score += 1
-        if cargo_id in sea_matches:
-            score += 1
-        
-        cargo_id_to_score[cargo_id] = cargo_id_to_score.get(cargo_id, 0) + score
-    
-    for cargo_id in month_matches:
-        score = 1
-        if cargo_id in port_matches:
-            score += 1
-        if cargo_id in sea_matches:
-            score += 1
-        
-        cargo_id_to_score[cargo_id] = cargo_id_to_score.get(cargo_id, 0) + score
-    
-    for cargo_id in port_matches:
-        score = 1
-        if cargo_id in sea_matches:
-            score += 1
-        
-        cargo_id_to_score[cargo_id] = cargo_id_to_score.get(cargo_id, 0) + score
-    
-    for cargo_id in sea_matches:
-        score = 1
-        
-        cargo_id_to_score[cargo_id] = cargo_id_to_score.get(cargo_id, 0) + score
-    
-    # Sort the cargo_id_to_score dictionary by score, and return the top n results
-    sorted_tuples = sorted(cargo_id_to_score.items(), key=lambda item: item[1], reverse=True)
+    def modify_score_capacity(ship: MongoShip, cargo: MongoCargo) -> int:
+        score = 0
+        """Modify score based on ship capacity vs cargo quantity logic."""
+        if ship.capacity_int:
+            if not (cargo.quantity_min_int and cargo.quantity_max_int):
+                score -= 2
+                return score # penalize the score if cargo quantity is not specified
+            
+            # SHIP TOO SMALL
+            if ship.capacity_int < cargo.quantity_min_int * 0.90:
+                score -= 5
+                return score # heavily penalize the score if ship capacity is less than cargo lower bound
 
-    # Find the intersection of all the sets
+            # SHIP ACCEPTABLE
+            if ship.capacity_int > cargo.quantity_min_int:
+                score += 1
+            
+            # SHIP GOOD
+            if ship.capacity_int > cargo.quantity_max_int * 0.85:
+                score += 1
 
-    ids = [tup[0] for tup in sorted_tuples[:max_n]]
-    return ids
+            # SHIP GREAT
+            if cargo.quantity_max_int * 1.10 >= ship.capacity_int >= cargo.quantity_max_int * 0.95:
+                score += 2
+            
+            # SHIP TOO BIG
+            if ship.capacity_int > cargo.quantity_max_int * 1.5:
+                score -= 2
+            
+            if ship.capacity_int > cargo.quantity_max_int * 2:
+                score -= 5
+            
+        return score
+    
+    for cargo in cargos:
+        score = 0
+        # STAGE 2 - BASIC DB FIELDS SCORE -> CALCULATE SCORE from simple fields, such as capacity_int, month_int, comission_float...
+
+        # 1. Handle Ship Capacity vs Cargo Quantity logic
+        score += modify_score_capacity(ship, cargo)
+            
+
+
+    # STAGE 3 - EMBEDDINGS SCORE -> CALCULATE SCORE from embeddings, such as port_embedding, sea_embedding, general_embedding...
+
+
+    # STAGE 4 - FINAL SCORE -> COMBINE THE SCORES FROM STAGE 2 AND STAGE 3, AND SORT THE CARGOS BY SCORE
+
+
+    return []
+
 
 def render_email_body_text(data):
     template_loader = FileSystemLoader(searchpath="templates")
