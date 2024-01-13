@@ -90,7 +90,7 @@ def create_embeddings_for_ship(existing_values: Dict):
 
     # Handle sea embedding
     sea = existing_values.get("sea", "")
-    sea_embeddings = np.random.rand(384)
+    sea_embeddings = np.random.rand(768)
 
     if sea:
         sea_embeddings = geoloc_model.encode([sea], convert_to_numpy=True)[0]
@@ -99,7 +99,7 @@ def create_embeddings_for_ship(existing_values: Dict):
 
     # Handle port embedding
     port = existing_values.get("port", "")
-    port_embeddings = np.random.rand(384)
+    port_embeddings = np.random.rand(768)
 
     if port:
         port_embeddings = geoloc_model.encode([port], convert_to_numpy=True)[0]
@@ -175,8 +175,8 @@ def create_embeddings_for_cargo(existing_values: Dict):
     # Handle sea embedding
     sea_from = existing_values.get("sea_from", "")
     sea_to = existing_values.get("sea_to", "")
-    sea_from_embeddings = np.random.rand(384)
-    sea_to_embeddings = np.random.rand(384)
+    sea_from_embeddings = np.random.rand(768)
+    sea_to_embeddings = np.random.rand(768)
 
     if sea_from:
         sea_from_embeddings = geoloc_model.encode([sea_from], convert_to_numpy=True)[0]
@@ -189,8 +189,8 @@ def create_embeddings_for_cargo(existing_values: Dict):
     # Handle port embedding
     port_from = existing_values.get("port_from", "")
     port_to = existing_values.get("port_to", "")
-    port_from_embeddings = np.random.rand(384)
-    port_to_embeddings = np.random.rand(384)
+    port_from_embeddings = np.random.rand(768)
+    port_to_embeddings = np.random.rand(768)
 
     if port_from:
         port_from_embeddings = geoloc_model.encode([port_from], convert_to_numpy=True)[0]

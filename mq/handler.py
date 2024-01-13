@@ -149,7 +149,7 @@ async def _gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queu
             await insert_gpt_entries_into_db(entries, email)
 
             live_logger.report_to_channel("gpt", f"Email with id {email.id} processed by GPT-3.5. Entities added to database. Sleeping for 5 seconds.")
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
         except asyncio.QueueEmpty:
             await asyncio.sleep(2)
@@ -169,7 +169,7 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
         # Fetch emails from DB, about SHIPS, from most RECENT to least recent, and add them to the queue
         # Make sure the ships "pairs_with" is an empty list, and that the ship has not been processed yet.
         # From past 3 days
-        date_from = datetime.utcnow() - timedelta(days=3)
+        date_from = datetime.utcnow() - timedelta(days=1)
         db_cursor = db_client["ships"].find(
             {
                 "pairs_with": [],
@@ -190,7 +190,7 @@ async def item_matching_consumer(stoppage_event: asyncio.Event, queue_from: asyn
         try:
             ship = queue_from.get_nowait() # get ship from queue
 
-            matching_cargos = await match_cargos_to_ship(ship)
+            matching_cargos = await match_cargos_to_ship(ship, 5)
 
             if not matching_cargos:
                 live_logger.report_to_channel("warning", f"No matching cargos found for ship with id {str(ship.id)}.")
@@ -220,7 +220,7 @@ async def item_matching_consumer(stoppage_event: asyncio.Event, queue_from: asyn
             ship.pairs_with = [ObjectId(cargo["id"]) for cargo in matching_cargos]
 
             # Update ship in database
-            # res = await db_client["ships"].update_one({"_id": ship.id}, {"$set": {"pairs_with": ship.pairs_with, "timestamp_pairs_updated": datetime.now()}})
+            # res = await db_client["ships"].update_one({"_id": ObjectId(ship.id)}, {"$set": {"pairs_with": ship.pairs_with, "timestamp_pairs_updated": datetime.now()}})
             # if not res.acknowledged:
             #     live_logger.report_to_channel("error", f"Error updating ship with id {str(ship.id)} in database.")
             #     continue
@@ -494,7 +494,7 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
         # Update email object with ship ids
         mongo_email.extracted_ship_ids = ship_ids
         # Send update to the database
-        res = await db_client["emails"].update_one({"_id": mongo_email.m_id}, {"$set": {"extracted_ship_ids": ship_ids}})
+        await db_client["emails"].update_one({"_id": ObjectId(mongo_email.m_id)}, {"$set": {"extracted_ship_ids": ship_ids}})
 
     if cargos:
         # Insert cargos into MongoDB
@@ -502,7 +502,7 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
         cargo_ids = [str(id) for id in cargos_inserted_ids.inserted_ids if id]
         mongo_email.extracted_cargo_ids = cargo_ids
         # Send update to the database
-        await db_client["emails"].update_one({"_id": mongo_email.m_id}, {"$set": {"extracted_cargo_ids": cargo_ids}})
+        await db_client["emails"].update_one({"_id": ObjectId(mongo_email.m_id)}, {"$set": {"extracted_cargo_ids": cargo_ids}})
     
     # Update emails timestamp_entities_extracted to now
     await db_client["emails"].update_one({"id": mongo_email.id}, {"$set": {"timestamp_entities_extracted": datetime.now()}})
@@ -529,9 +529,9 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
     # TBD... (for now we retrieve all cargos, since we don't have enough data to filter them out)
 
     #fetch cargos from past 3 days only
-    date_from = datetime.now() - timedelta(days=3)
+    date_from = datetime.now() - timedelta(days=7)
     db_cargos = await db_client["cargos"].find({
-        # "timestamp_created": {"$gte": date_from}
+        "timestamp_created": {"$gte": date_from}
     }).sort(
         "timestamp_created", -1
     ).to_list(None)
@@ -543,8 +543,10 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
     general_embeddings = []
     
     for cargo in cargos:
-        port_embeddings.append(cargo.port_embedding)
+        ## make sure embedding has 384 items
+
         sea_embeddings.append(cargo.sea_embedding)
+        port_embeddings.append(cargo.port_embedding)
         general_embeddings.append(cargo.general_embedding)
 
         score = 0

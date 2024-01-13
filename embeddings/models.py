@@ -2,14 +2,14 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# model = SentenceTransformer('all-MiniLM-L6-v2')
+model = SentenceTransformer('chbwang/geo_multi-qa-mpnet-base-dot-v1')
 model2 = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
 
 
 geoloc_model = model
 general_model = model2
 # model = SentenceTransformer("dima-does-code/LaBSE-geonames-15K-MBML-5e-v2")
-# model = SentenceTransformer('chbwang/geo_multi-qa-mpnet-base-dot-v1')
 
 # model2 = SentenceTransformer("DataQueen/LAPSE_GEONAMES_RELOC")
 

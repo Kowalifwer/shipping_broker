@@ -25,7 +25,7 @@ def capacity_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
 
         # SHIP GREAT
         if cargo.quantity_max_int * 1.10 >= ship.capacity_int >= cargo.quantity_max_int * 0.95:
-            score += 4
+            score += 5
         
         # SHIP TOO BIG
         if ship.capacity_int > cargo.quantity_max_int * 1.5:
@@ -44,7 +44,7 @@ def month_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
 
     if cargo.month_int:
         if ship.month_int == cargo.month_int:
-            score += 3
+            score += 5
         elif abs(ship.month_int - cargo.month_int) == 1:
             score += 0
         else:
