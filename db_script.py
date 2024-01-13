@@ -2,7 +2,7 @@ from setup import email_client, openai_client, db_client
 from db import MongoCargo, MongoEmail, update_cargo_entry_with_calculated_fields, update_ship_entry_with_calculated_fields
 import asyncio
 
-async def add_embeddings():
+async def add_or_update_embeddings():
     # Fetch all documents from the collection
     cargo_collection = db_client["cargos"]
     cursor = cargo_collection.find({})
@@ -34,5 +34,4 @@ async def add_embeddings():
             print("No ship entry updated")
 
 if __name__ == "__main__":
-    asyncio.run(add_embeddings())
-
+    asyncio.run(add_or_update_embeddings())
