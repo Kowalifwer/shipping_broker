@@ -164,18 +164,51 @@ async def _gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queu
             live_logger.report_to_channel("gpt", f"Unhandled error in processing email. {e}")
 
 async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[MongoShip]):
+    STATES = [1, 2, 3]
+
     while not stoppage_event.is_set():
 
         # Fetch emails from DB, about SHIPS, from most RECENT to least recent, and add them to the queue
         # Make sure the ships "pairs_with" is an empty list, and that the ship has not been processed yet.
-        # From past 3 days
         date_from = datetime.utcnow() - timedelta(days=1)
-        db_cursor = db_client["ships"].find(
+        # Specify the fields you want to check for non-emptiness
+        fields_to_check = ["field1", "field2", "field3"]  # Add all relevant fields
+
+        # Create the aggregation pipeline
+        pipeline = [
             {
-                "pairs_with": [],
-                "timestamp_created": {"$gte": date_from}
+                "$match": {
+                    "pairs_with": [],
+                    "timestamp_created": {"$gte": date_from},
+                    # "timestamp_pairs_updated": None,
+                }
+            },
+            # This will add a new field to each document, that will store count of the number of non-empty fields in the document.
+            # Idea is to prioritize ships with more filled-in fields.
+            {
+                "$addFields": {
+                    "nonEmptyFields": {
+                        "$size": {
+                            "$filter": {
+                                "input": {"$objectToArray": "$$ROOT"},
+                                "as": "item",
+                                "cond": {
+                                    "$and": [
+                                        {"$ne": ["$$item.v", ""]},
+                                        {"$in": ["$$item.k", fields_to_check]}
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "$sort": {"nonEmptyFields": -1, "timestamp_created": -1}
             }
-        ).sort("timestamp_created", -1)
+        ]
+
+        db_cursor = db_client["ships"].aggregate(pipeline)
 
         async for ship in db_cursor:
             ship = MongoShip(**ship)
@@ -189,7 +222,8 @@ async def item_matching_consumer(stoppage_event: asyncio.Event, queue_from: asyn
     while not stoppage_event.is_set():
         try:
             ship = queue_from.get_nowait() # get ship from queue
-
+            # TODO: Check this ship was not already recently processed (i.e. timestamp_pairs_updated is None or > 1 day ago)
+            # To enable idempotency basically, such that if in case we get a duplicate ship in the queue, we can just ignore it.
             matching_cargos = await match_cargos_to_ship(ship, 5)
 
             if not matching_cargos:
@@ -531,9 +565,12 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
     #fetch cargos from past 3 days only
     date_from = datetime.now() - timedelta(days=7)
     db_cargos = await db_client["cargos"].find({
-        "timestamp_created": {"$gte": date_from}
+        "timestamp_created": {"$gte": date_from},
+        "quantity_max_int": {"$gte": ship.capacity_int * 0.95},
+        "quantity_min_int": {"$lte": ship.capacity_int * 1.05},
+
     }).sort(
-        "timestamp_created", -1
+        "timestamp_created", -1,
     ).to_list(None)
     cargos = [MongoCargo(**cargo) for cargo in db_cargos]
     simple_scores = []
@@ -599,10 +636,10 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
             "general_score": general_scores[i],
             "email_body": cargos[i].email.body,
         } for i, scores in enumerate(zip(
-            simple_scores, # Simple score (db scores) are important - hence should be multiplied
-            port_scores * 1.25,
-            sea_scores,
-            general_scores * 1.75
+            simple_scores,  # Simple score (db scores) are important - hence should be multiplied
+            port_scores * 2,  # Port match should be scored quite high?? most precise location match our system can do.
+            sea_scores * 1.25,
+            general_scores * 1.25,
         )
     )]
     final_scores.sort(key=lambda x: x["total_score"], reverse=True)
