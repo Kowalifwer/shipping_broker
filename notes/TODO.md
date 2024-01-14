@@ -6,12 +6,11 @@
    1. consider either training GPT to be more standardized, OR manually sort out SEAS and stuff, based on substring matches ?
 3. Extract more emails from GPT, but only from the **past week** or so, and use to train and run some matches.
 
-
 # 27/12/2023
 
 1. normalize all gpt extracted fields? lowercase. fuzzy matching?
 
--> embeddings ->   
+-> embeddings ->
 
 [Vector search | Redis](https://redis.io/docs/interact/search-and-query/query/vector-search/) ??
 
@@ -26,3 +25,14 @@
 2. Query more complex and diverse text fields like port to from, sea, and stuff via vector similarity search. This should better handle the diversity across semantically similar fields, example:  "Red Sea (can try redel Med)" will have similarity with red sea. Considered also fuzzy/similarity search, but vector should be more general
 3. merge the scores of 2 approaches. tweak over time. both components can be improved with improving stage 1 - gpt to extract better info - i.e more fields for more embedding data, or better formatting/preprocessing/normalization of the simple db field (more consistent format)
 4. Later, can see effectiveness of either, and make changes as necessary. Perhaps with fine tuning of the embedding model, there will be less need of the database querying step.
+
+
+# 14/01/2023
+
+1. ship status handling
+   1. open -> set month to be current month?
+   2. employed
+   3. prompt
+2. GPT parsing month - perhaps enable whole DATE ? -> manually split into MONTH or exact date type, and score higher if exact is present
+3. Handle missing fields better for embeddings - currently random vector is placed there.
+4. Consider other embedding models for port + sea ? Perhaps let GPT collect a string of all location data into 1 field? - for better matching?
