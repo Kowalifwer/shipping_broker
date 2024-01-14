@@ -164,15 +164,15 @@ async def _gpt_email_consumer(stoppage_event: asyncio.Event, queue: asyncio.Queu
             live_logger.report_to_channel("gpt", f"Unhandled error in processing email. {e}")
 
 async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[MongoShip]):
-    STATES = [1, 2, 3]
 
     while not stoppage_event.is_set():
 
         # Fetch emails from DB, about SHIPS, from most RECENT to least recent, and add them to the queue
         # Make sure the ships "pairs_with" is an empty list, and that the ship has not been processed yet.
         date_from = datetime.utcnow() - timedelta(days=1)
-        # Specify the fields you want to check for non-emptiness
-        fields_to_check = ["field1", "field2", "field3"]  # Add all relevant fields
+
+        # Fields that will be counted to prioritize ships with more filled-in fields
+        fields_to_count = ["name", "status", "port", "sea", "month", "capacity", "keyword_data"]
 
         # Create the aggregation pipeline
         pipeline = [
@@ -195,7 +195,7 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
                                 "cond": {
                                     "$and": [
                                         {"$ne": ["$$item.v", ""]},
-                                        {"$in": ["$$item.k", fields_to_check]}
+                                        {"$in": ["$$item.k", fields_to_count]}
                                     ]
                                 }
                             }
