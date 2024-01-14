@@ -47,6 +47,7 @@ def extract_weights(s: str) -> Optional[Tuple[int, int]]:
     return None
 
 months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+statuses = ["open", "prompt", "opn", "op", "pmt"]
 
 def extract_month(s: str) -> Optional[int]:
     for i, month in enumerate(months, start=1):
@@ -78,6 +79,15 @@ def update_ship_entry_with_calculated_fields(existing_values: Dict):
     # check if capacity is less than 3 digits, then multiply by 1000
     if capacity and capacity < 1000:
         capacity = capacity * 1000
+
+    # Further update month in case ship has a status of "open" or "prompt" to be the month of the timestamp of the email.
+    if existing_values.get("status", "").lower() in statuses:
+        # Convert string to datetime object
+        date_object = datetime.fromisoformat(existing_values["timestamp_created"].email.date_received)
+
+        # Get the month as a string
+        month_string = date_object.strftime("%B")
+        existing_values["month"] = month_string[:3]
 
     # If capacity is not specified, pass an empty string to extract_number, which will return None
     existing_values["capacity_int"] = capacity
