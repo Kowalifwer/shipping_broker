@@ -296,7 +296,7 @@ async def email_send_producer(stoppage_event: asyncio.Event, queue: asyncio.Queu
                 "cargos": cargos,
                 "ship": ship,
                 "email": ship.email,
-            })
+            }, template_path= "email/to_ship_verbose.html")
 
             success = await email_client.send_email(
                 to_email="shipperinho123@gmail.com",
@@ -646,11 +646,11 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
 
     return final_scores[:max_n]
 
-def render_email_body_text(data):
+def render_email_body_text(data, template_path: str = "email/to_ship.html"):
     template_loader = FileSystemLoader(searchpath="templates")
     env = Environment(loader=template_loader)
 
-    template = env.get_template("email/to_ship.html")
+    template = env.get_template(template_path)
     rendered_content = template.render(data)
     return rendered_content
 

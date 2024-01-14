@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Template</title>
+</head>
+
+<body style="font-family: Arial, sans-serif; margin: 5px;">
+
+    <div style="background-color: #f5f5f5; padding: 10px; margin-bottom: 20px; border: 1px solid #ddd;">
+        <h2 style="color: navy;">Original Ship email</h2>
+        <div style="border: 1px solid #ccc; padding: 10px; background-color: #fff;">
+            {{ email.body | safe }}
+        </div>
+        <p style="margin: 10px 0 0 0;">System will reply to: {{ email.sender }}</p>
+    </div>
+
+    <h2 style="color: navy; text-align: center;">Ship DATA from GPT:</h2>
+
+    <div style="margin-top: 20px; overflow: hidden; clear: both;">
+        <div style="float: left; width: 48%; border: 1px solid #ddd; padding: 10px; background-color: #fff;">
+            <p style="font-weight: bold;">Ship Name: {{ ship.name }}</p>
+            <p style="font-weight: bold;">Ship Status: {{ ship.status }}</p>
+            <hr>
+            <p style="font-weight: bold;">Ship Port: {{ ship.port }}</p>
+            <p style="font-weight: bold;">Ship Sea: {{ ship.sea }}</p>
+        </div>
+        <div style="float: right; width: 48%; border: 1px solid #ddd; padding: 10px; background-color: #fff;">
+            <p style="font-weight: bold;">Ship Capacity: {{ ship.capacity }}</p>
+            <p style="font-weight: bold;">Ship Month: {{ ship.month }}</p>
+            <p style="font-weight: bold;">Ship Extra information: {{ ship.keyword_data }}</p>
+            <hr>
+            <p style="font-weight: bold;">Ship Capacity number: {{ ship.capacity_int }}</p>
+            <p style="font-weight: bold;">Ship Month number: {{ ship.month_int }}</p>
+        </div>
+    </div>
+
+
+    <div style="margin-top: 20px;">
+        <h2 style="color: navy; margin: 20px 0; text-align: center;">TOP 5 CARGO MATCHES</h2>
+        {% for cargo in cargos %}
+            <div style="margin-bottom: 20px; border: 1px solid #ddd; background-color: #fff; overflow: hidden; clear: both;">
+                <h4 style="background-color: #f5f5f5; padding: 10px; margin: 0;">Cargo suggestion {{ loop.index }}</h4>
+                
+                <p style="font-weight: bold;">Cargo email: {{ cargo.email }}</p>
+                <div style="border: 1px solid #ccc; padding: 10px; background-color: #fff;">
+                    {{ cargo.email.body | safe }}
+                </div>
+
+                <div style="float: left; width: 48%; padding: 10px;">
+                    <p>Name: {{ cargo.name }}</p>
+                    <p>Quantity: {{ cargo.quantity }}</p>
+                    <hr>
+                    <p>Port From: {{ cargo.port_from }}</p>
+                    <p>Port To: {{ cargo.port_to }}</p>
+                    <hr>
+                    <p>Sea From: {{ cargo.sea_from }}</p>
+                    <p>Sea To: {{ cargo.sea_to }}</p>
+                </div>
+                <div style="float: right; width: 48%; padding: 10px;">
+                    <p>Month: {{ cargo.month }}</p>
+                    <p>Comission: {{ cargo.comission }}</p>
+                    <hr>
+                    <p>Quantity minimum limit: {{ cargo.quantity_min_int }}</p>
+                    <p>Quantity maximum limit: {{ cargo.quantity_max_int }}</p>
+                    <hr>
+                    <p>Month number: {{ cargo.month_int }}</p>
+                    <p>Extra information: {{ cargo.keyword_data }}</p>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+    
+
+    <p style="margin-top: 20px;">If you have any further questions or if you are interested in any of these matches, please feel free to contact us.</p>
+
+    <p>Best regards, Unimar Service ltd.</p>
+
+</body>
+
+</html>
