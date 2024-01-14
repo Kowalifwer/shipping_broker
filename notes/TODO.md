@@ -31,8 +31,11 @@
 
 1. ship status handling
    1. open -> set month to be current month?
-   2. employed
-   3. prompt
+   2. employed -> ignore - means already occupied (ignore?)
+   3. prompt -> same as open, but more urgent (perhaps slightly higher score than just OPEN)
 2. GPT parsing month - perhaps enable whole DATE ? -> manually split into MONTH or exact date type, and score higher if exact is present
-3. Handle missing fields better for embeddings - currently random vector is placed there.
-4. Consider other embedding models for port + sea ? Perhaps let GPT collect a string of all location data into 1 field? - for better matching?
+3. **Improve matching**
+   1. Consider other embedding models for port + sea ? Perhaps let GPT collect a string of all location data into 1 field? - for better matching?
+   2. How to handle missing fields ? (empty strings) - should objects with more fields be automatically ranked higher ? Conversely, how much to penalize missing fields? Depends on field importance I guess?
+   3. Improve hard limits - currently even with big score detriment, system will still end up suggesting good cargo LOCATION-wise, but bad date for example. Perhaps do filter out stuff that will never work, out of the original dataset.
+   4. Consider alternative matching approach - AVERAGE RANKING (i.e rank individually based on the different conditions, and then merge into a single rank. Perhaps some individual rankings can have a higher weight than others. Intersecting high ranked objects should generally be good, right?)
