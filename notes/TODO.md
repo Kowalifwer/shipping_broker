@@ -39,3 +39,4 @@
    2. How to handle missing fields ? (empty strings) - should objects with more fields be automatically ranked higher ? Conversely, how much to penalize missing fields? Depends on field importance I guess?
    3. Improve hard limits - currently even with big score detriment, system will still end up suggesting good cargo LOCATION-wise, but bad date for example. Perhaps do filter out stuff that will never work, out of the original dataset.
    4. Consider alternative matching approach - AVERAGE RANKING (i.e rank individually based on the different conditions, and then merge into a single rank. Perhaps some individual rankings can have a higher weight than others. Intersecting high ranked objects should generally be good, right?)
+   5. Not every ship will have N good enough rankings. Create a way to handle what scores are "good enough?". If ship does not have matches above this thereshold - then ignore this ship.
