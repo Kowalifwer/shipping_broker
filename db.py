@@ -83,7 +83,7 @@ def update_ship_entry_with_calculated_fields(existing_values: Dict):
     # Further update month in case ship has a status of "open" or "prompt" to be the month of the timestamp of the email.
     if existing_values.get("status", "").lower() in statuses:
         # Convert string to datetime object
-        date_object = datetime.fromisoformat(existing_values["timestamp_created"].email.date_received)
+        date_object = datetime.fromisoformat(existing_values["email"]["date_received"])
 
         # Get the month as a string
         month_string = date_object.strftime("%B")
