@@ -169,18 +169,19 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
 
         # Fetch emails from DB, about SHIPS, from most RECENT to least recent, and add them to the queue
         # Make sure the ships "pairs_with" is an empty list, and that the ship has not been processed yet.
-        date_from = datetime.utcnow() - timedelta(days=1)
+        date_from = datetime.utcnow() - timedelta(days=21)
 
         # Fields that will be counted to prioritize ships with more filled-in fields
-        fields_to_count = ["name", "status", "port", "sea", "month", "capacity", "keyword_data"]
+        fields_to_count = ["port", "sea", "month", "capacity"] #name, status, keyword_data - ignored for now since they will compete with more important fields
 
         # Create the aggregation pipeline
         pipeline = [
             {
+                # Some hard filters to prevent useless ships from being matched.
                 "$match": {
                     "pairs_with": [],
                     "timestamp_created": {"$gte": date_from},
-                    # "timestamp_pairs_updated": None,
+                    # "capacity_int": {"$ne": None}, # Pointless to try and match ships without capacity (for now, at least)
                 }
             },
             # This will add a new field to each document, that will store count of the number of non-empty fields in the document.
@@ -216,6 +217,9 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
             if stoppage_event.is_set():
                 live_logger.report_to_channel("info", f"Producer closed verified.")
                 return
+        else:
+            print("Ship cursor exchausted. Will go again in 3 seconds.")
+            await asyncio.sleep(3)
 
 async def item_matching_consumer(stoppage_event: asyncio.Event, queue_from: asyncio.Queue[MongoShip], queue_to: asyncio.Queue[MongoShip]):
     # 6. Consume emails from the queue, and match them with other entities in the database
@@ -236,7 +240,6 @@ async def item_matching_consumer(stoppage_event: asyncio.Event, queue_from: asyn
                     existing_data = json.load(file)
             except FileNotFoundError:
                 existing_data = []
-            
 
             existing_data.append({
                     "ship": ship.name,
@@ -553,23 +556,23 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
     # 2. month_int (if specified) - both ship and cargo have a value. make it a match IF months are the same or within 1 month of each other.
     # 3. port (if specified) - both ship and cargo have a value. cargo has port_from port_to, whilst ship only has port. make it a match IF port is the same as either port_from or port_to.
     # 4. sea (if specified) - both ship and cargo have a value. cargo has sea_from sea_to, whilst ship only has sea. make it a match IF sea is the same as either sea_from or sea_to.
-    
-    # Ship quantity_min_int and quantity_max_int.
-    # Ship month_int
-    # Ship port_to, port_from
-    # Ship sea_to, sea_from
 
     # STAGE 1 - HARD FILTERS (DB QUERY) - stuff that will completely disqualify a cargo from being matched with a ship (can be done fully via DB query)
     # TBD... (for now we retrieve all cargos, since we don't have enough data to filter them out)
 
     #fetch cargos from past 3 days only
-    date_from = datetime.now() - timedelta(days=7)
-    db_cargos = await db_client["cargos"].find({
-        "timestamp_created": {"$gte": date_from},
-        "quantity_max_int": {"$gte": ship.capacity_int * 0.95},
-        "quantity_min_int": {"$lte": ship.capacity_int * 1.05},
+    date_from = datetime.now() - timedelta(days=31)
 
-    }).sort(
+    query_cargos: Dict[str, Dict] = {
+        "timestamp_created": {"$gte": date_from},
+    }
+    if ship.capacity_int: # Capacity must be within 20% of the bounds
+        query_cargos["quantity_max_int"] = {"$gte": ship.capacity_int * 0.80}
+        query_cargos["quantity_min_int"] = {"$lte": ship.capacity_int * 1.20}
+    if ship.month_int: # Month must be within 1 month of the bounds
+        query_cargos["month_int"] = {"$gte": ship.month_int - 1, "$lte": ship.month_int + 1}
+
+    db_cargos = await db_client["cargos"].find(query_cargos).sort(
         "timestamp_created", -1,
     ).to_list(None)
     cargos = [MongoCargo(**cargo) for cargo in db_cargos]
