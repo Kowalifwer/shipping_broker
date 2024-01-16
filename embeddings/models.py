@@ -4,6 +4,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # model = SentenceTransformer('all-MiniLM-L6-v2')
 model = SentenceTransformer('chbwang/geo_multi-qa-mpnet-base-dot-v1')
+# https://huggingface.co/sentence-transformers/multi-qa-mpnet-base-dot-v1
+
 model2 = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
 
 
