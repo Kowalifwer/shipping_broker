@@ -70,6 +70,8 @@ def comission_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
             score -= 1
         else: # >5 %
             score -= 6
+    else:
+        score -= 2
 
     return score
 
