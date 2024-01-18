@@ -26,17 +26,22 @@
 3. merge the scores of 2 approaches. tweak over time. both components can be improved with improving stage 1 - gpt to extract better info - i.e more fields for more embedding data, or better formatting/preprocessing/normalization of the simple db field (more consistent format)
 4. Later, can see effectiveness of either, and make changes as necessary. Perhaps with fine tuning of the embedding model, there will be less need of the database querying step.
 
-
 # 14/01/2023
 
 1. ship status handling
+
    1. open -> set month to be current month?
    2. employed -> ignore - means already occupied (ignore?)
    3. prompt -> same as open, but more urgent (perhaps slightly higher score than just OPEN)
 2. GPT parsing month - perhaps enable whole DATE ? -> manually split into MONTH or exact date type, and score higher if exact is present
 3. **Improve matching**
+
    1. Consider other embedding models for port + sea ? Perhaps let GPT collect a string of all location data into 1 field? - for better matching?
    2. How to handle missing fields ? (empty strings) - should objects with more fields be automatically ranked higher ? Conversely, how much to penalize missing fields? Depends on field importance I guess?
    3. Improve hard limits - currently even with big score detriment, system will still end up suggesting good cargo LOCATION-wise, but bad date for example. Perhaps do filter out stuff that will never work, out of the original dataset.
    4. Consider alternative matching approach - AVERAGE RANKING (i.e rank individually based on the different conditions, and then merge into a single rank. Perhaps some individual rankings can have a higher weight than others. Intersecting high ranked objects should generally be good, right?)
    5. Not every ship will have N good enough rankings. Create a way to handle what scores are "good enough?". If ship does not have matches above this thereshold - then ignore this ship.
+
+   # 18/01/2024
+
+   Improve duplicate email filter - currently some extracted ships are from different email objects, but have the same or very similar content in the body! Consider using fuzzy similarity or embeddings again?
