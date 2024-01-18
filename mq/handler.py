@@ -213,6 +213,7 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
 
         async for ship in db_cursor:
             ship = MongoShip(**ship)
+            print(f"Ship added to queue: {ship.name}, {ship.port}, {ship.sea}, {ship.month}, {ship.capacity_int} - {ship.timestamp_created}")
             await queue.put(ship)
             if stoppage_event.is_set():
                 live_logger.report_to_channel("info", f"Producer closed verified.")
@@ -364,7 +365,7 @@ MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=2000)
 MQ_GPT_EMAIL_TO_DB: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=500)
 
 # Message Queue for stage 3 - Item matching
-MQ_ITEM_MATCHING: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=5)
+MQ_ITEM_MATCHING: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=50)
 
 # Message Queue for stage 4 - Email send for Ships with matched cargos
 MQ_EMAIL_SEND: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=1)
