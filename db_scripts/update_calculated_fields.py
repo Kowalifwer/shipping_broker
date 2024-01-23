@@ -1,5 +1,5 @@
-from setup import email_client, openai_client, db_client
-from db import MongoCargo, MongoEmail, update_cargo_entry_with_calculated_fields, update_ship_entry_with_calculated_fields
+from shipping_broker.setup import db_client
+from shipping_broker.db import update_cargo_entry_with_calculated_fields, update_ship_entry_with_calculated_fields
 import asyncio
 
 async def add_or_update_embeddings():
