@@ -487,43 +487,44 @@ async def email_to_entities_via_openai(email_message: EmailMessageAdapted) -> di
 async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAdapted) -> None:
     """Insert GPT-3.5 entries into database."""
 
-    ignored_entries = []
+    validation_failed_entries = []
     ships = []
     cargos = []
     mongo_email = email.mongo_db_object
 
+    await db_client["extractions"].insert_one({"email": mongo_email.model_dump(), "entities": ships + cargos})
+
     for entry in entries:
+        entry["email"] = mongo_email.model_dump()
 
         entry_type = entry.pop("type", None)
         if entry_type not in ["ship", "cargo"]:
-            ignored_entries.append(entry)
+            entry["reason"] = "Invalid entry type (must be 'ship' or 'cargo')"
+            validation_failed_entries.append(entry)
             continue
 
-        entry["email"] = mongo_email
-
         if entry_type == "ship":
+            # Add calculated fields to ship
+            update_ship_entry_with_calculated_fields(entry)
+
             try:
-                # Add calculated fields to ship
-                update_ship_entry_with_calculated_fields(entry)
-
                 ship = MongoShip(**entry)
-
                 ships.append(ship.model_dump())
+
             except ValidationError as e:
-                ignored_entries.append(entry)
-                print("Error validating ship. skipping addition", e)
+                entry["reason"] = str(e)
+                validation_failed_entries.append(entry)
         
         elif entry_type == "cargo":
+            # Add calculated fields to cargo
+            update_cargo_entry_with_calculated_fields(entry)
             try:
-                # Add calculated fields to cargo
-                update_cargo_entry_with_calculated_fields(entry)
-
                 cargo = MongoCargo(**entry)
-
                 cargos.append(cargo.model_dump())
+
             except ValidationError as e:
-                ignored_entries.append(entry)
-                print("Error validating cargo. skipping addition", e)
+                entry["reason"] = str(e)
+                validation_failed_entries.append(entry)
 
     if ships:
         # Insert ships into MongoDB
@@ -542,12 +543,11 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
         # Send update to the database
         await db_client["emails"].update_one({"_id": ObjectId(mongo_email.m_id)}, {"$set": {"extracted_cargo_ids": cargo_ids}})
     
-    # Update emails timestamp_entities_extracted to now
-    await db_client["emails"].update_one({"id": mongo_email.id}, {"$set": {"timestamp_entities_extracted": datetime.now()}})
-    
     live_logger.report_to_channel("gpt", f"Inserted {len(ships)} ships and {len(cargos)} cargos into database.")
-    if ignored_entries:
-        live_logger.report_to_channel("extra", f"Additionally, ignored {len(ignored_entries)} entries from GPT-3.5. {ignored_entries}")
+    if validation_failed_entries:
+        live_logger.report_to_channel("extra", f"Additionally, ignored {len(validation_failed_entries)} entries from GPT-3.5.")
+        # Add all validation_failed entries to "failed_entries" collection in database
+        await db_client["failed_entries"].insert_many(validation_failed_entries)
     
 async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
     """Match cargos to a ship, based on the extracted fields."""
