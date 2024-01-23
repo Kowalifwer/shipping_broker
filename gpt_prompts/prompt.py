@@ -9,6 +9,7 @@ Important rules:
 5. if a particular field is not specified in the email or not applicable, leave an empty string for that field.
 6. If you understood the value for a given field, but it is strange or wrong in the email, please correct it and include your reasonable interpretation for the value.
 7. Include any important data and keywords in the keyword_data field. This includes any excess data that did not fit into the original fields. This field will be used for similarity matching. Please include as much useful data as possible.
+8. Your response MUST BE a valid JSON object ONLY. Do not include any other text in the response.
 
 A CARGO object should contain ONLY the following fields:
 1. name: the name of the cargo/product being offered, eg. "Marble blocks". 
@@ -30,7 +31,7 @@ A SHIP object should contain ONLY the following fields:
 6. month: the month when the ship is available for cargoes
 7. keyword_data: all important keywords across all the fields, to be tokenized and embedded for similarity matching
 
-Example output with 1 ship and 1 cargo extracted from input email:
+Example response with 1 ship and 1 cargo extracted from input email:
 
 {
     "entries": [
