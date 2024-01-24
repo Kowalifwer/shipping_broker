@@ -272,7 +272,7 @@ class FailedEntry(BaseModel):
 
 class MongoEmailAndExtractedEntities(BaseModel):
     email: MongoEmail
-    entities: List[MongoCargo or MongoShip]
+    entities: List[MongoCargo or MongoShip or FailedEntry]
 
     audited: bool = False # Whether the email has been audited by a human, and new entities have been added for training purposes
     timestamp_audited: Optional[datetime] = None # Timestamp of when the email was audited
