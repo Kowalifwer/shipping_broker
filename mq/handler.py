@@ -12,7 +12,7 @@ from bson import ObjectId
 from setup import email_client, openai_client, db_client
 from realtime_status_logger import live_logger
 from mail import EmailMessageAdapted
-from db import MongoEmail, update_ship_entry_with_calculated_fields, update_cargo_entry_with_calculated_fields, FailedEntry
+from db import MongoEmail, update_ship_entry_with_calculated_fields, update_cargo_entry_with_calculated_fields, FailedEntry, MongoEmailAndExtractedEntities
 from mq import scoring
 from gpt_prompts import prompt
 
@@ -487,10 +487,11 @@ async def email_to_entities_via_openai(email_message: EmailMessageAdapted) -> di
 async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAdapted) -> None:
     """Insert GPT-3.5 entries into database."""
 
-    validation_failed_entries = []
-    ships = []
-    cargos = []
+    validation_failed_entries: List[FailedEntry] = []
+    ships: List[MongoShip] = []
+    cargos: List[MongoCargo] = []
     mongo_email = email.mongo_db_object
+    # Entity extraction timestamp must be set.
     mongo_email.timestamp_entities_extracted = datetime.now()
 
     for entry in entries:
@@ -501,7 +502,7 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
         if entry_type not in ["ship", "cargo"]:
             entry["type"] = entry_type
             entry["reason"] = "Invalid entry type (must be 'ship' or 'cargo')"
-            validation_failed_entries.append(FailedEntry(**entry).model_dump())
+            validation_failed_entries.append(FailedEntry(**entry))
             continue
 
         if entry_type == "ship":
@@ -509,50 +510,46 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
             update_ship_entry_with_calculated_fields(entry)
 
             try:
-                ship = MongoShip(**entry)
-                ships.append(ship.model_dump())
+                ships.append(MongoShip(**entry))
 
             except ValidationError as e:
                 entry["type"] = entry_type
                 entry["reason"] = str(e)
-                validation_failed_entries.append(FailedEntry(**entry).model_dump())
+                validation_failed_entries.append(FailedEntry(**entry))
         
         elif entry_type == "cargo":
             # Add calculated fields to cargo
             update_cargo_entry_with_calculated_fields(entry)
+
             try:
-                cargo = MongoCargo(**entry)
-                cargos.append(cargo.model_dump())
+                cargos.append(MongoCargo(**entry))
 
             except ValidationError as e:
                 entry["type"] = entry_type
                 entry["reason"] = str(e)
-                validation_failed_entries.append(FailedEntry(**entry).model_dump())
+                validation_failed_entries.append(FailedEntry(**entry))
 
     if ships:
         # Insert ships into MongoDB
-        ships_inserted_ids = await db_client["ships"].insert_many(ships)
-        ship_ids = [str(id) for id in ships_inserted_ids.inserted_ids if id]
-        # Update email object with ship ids
-        mongo_email.extracted_ship_ids = ship_ids
-        # Send update to the database
-        await db_client["emails"].update_one({"_id": ObjectId(mongo_email.m_id)}, {"$set": {"extracted_ship_ids": ship_ids}})
+        await db_client["ships"].insert_many([ship.model_dump() for ship in ships])
 
     if cargos:
         # Insert cargos into MongoDB
-        cargos_inserted_ids = await db_client["cargos"].insert_many(cargos)
-        cargo_ids = [str(id) for id in cargos_inserted_ids.inserted_ids if id]
-        mongo_email.extracted_cargo_ids = cargo_ids
-        # Send update to the database
-        await db_client["emails"].update_one({"_id": ObjectId(mongo_email.m_id)}, {"$set": {"extracted_cargo_ids": cargo_ids}})
+        await db_client["cargos"].insert_many([cargo.model_dump() for cargo in cargos])
 
     live_logger.report_to_channel("gpt", f"Inserted {len(ships)} ships and {len(cargos)} cargos into database.")
     if validation_failed_entries:
         live_logger.report_to_channel("extra", f"Additionally, ignored {len(validation_failed_entries)} entries from GPT-3.5.")
         # Add all validation_failed entries to "failed_entries" collection in database
-        await db_client["failed_entries"].insert_many(validation_failed_entries)
+        await db_client["failed_entries"].insert_many([entry.model_dump() for entry in validation_failed_entries])
     
-    await db_client["extractions"].insert_one({"email": mongo_email.model_dump(), "entities": ships + cargos + validation_failed_entries})
+    await db_client["extractions"].insert_one(
+        MongoEmailAndExtractedEntities(
+            email=mongo_email,
+            entities=ships + cargos,
+            failed_entries=validation_failed_entries,
+        ).model_dump()
+    )
     
 async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
     """Match cargos to a ship, based on the extracted fields."""

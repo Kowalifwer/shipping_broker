@@ -74,10 +74,6 @@ class MongoEmail(BaseModel):
 
     timestamp_entities_extracted: Optional[datetime] = None # Timestamp of when the entities were extracted from the email
 
-    # Extra fields to be populated by the email processing pipeline
-    extracted_ship_ids: Optional[List[str]] = Field(default_factory=list) # List of ship IDs extracted from the email
-    extracted_cargo_ids: Optional[List[str]] = Field(default_factory=list) # List of cargo IDs extracted from the email
-
 def update_ship_entry_with_calculated_fields(existing_values: Dict):
     """Modifies existing ship object in place, adding calculated fields and embeddings."""
     capacity = extract_number(existing_values.get("capacity", ""))
