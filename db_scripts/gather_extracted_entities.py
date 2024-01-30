@@ -1,7 +1,8 @@
 # from shipping_broker.setup import db_client
 from setup import db_client
 import asyncio
-from db import MongoCargo, MongoShip, FailedEntry
+from db import MongoCargo, MongoShip, FailedEntry, MongoEmailAndExtractedEntities
+from typing import List
 
 async def gather_extracted_entities():
     # Fetch all documents from the collection
@@ -33,24 +34,26 @@ async def gather_extracted_entities():
         ship_cursor = ship_collection.find({"email.id": email["id"]})
         failed_entries_cursor = failed_entries_collection.find({"email.id": email["id"]})
 
-        cargos_and_ships = []
+        cargos_and_ships: List[MongoCargo | MongoShip] = []
+        failed_entries: List[FailedEntry] = []
 
         async for cargo in cargo_cursor:
             cargo["type"] = "cargo"
-            cargos_and_ships.append(MongoCargo(**cargo).model_dump())
+            cargos_and_ships.append(MongoCargo(**cargo))
         
         async for ship in ship_cursor:
             ship["type"] = "ship"
-            cargos_and_ships.append(MongoShip(**ship).model_dump())
+            cargos_and_ships.append(MongoShip(**ship))
         
         async for failed_entry in failed_entries_cursor:
-            cargos_and_ships.append(FailedEntry(**failed_entry).model_dump())
+            failed_entries.append(FailedEntry(**failed_entry))
         
         # Add the results to a new document in the extractions collection
-        await extractions_collection.insert_one({
-            "email": email,
-            "entities": cargos_and_ships,
-        })
+        await extractions_collection.insert_one(MongoEmailAndExtractedEntities(
+            email=email,
+            entities=cargos_and_ships,
+            failed_entries=failed_entries,
+        ).model_dump())
         n_added += 1
     
     print(f"Added {n_added} new extractions, skipped {n_skipped} emails that were already extracted")

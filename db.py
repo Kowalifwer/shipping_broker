@@ -272,11 +272,12 @@ class FailedEntry(BaseModel):
 
 class MongoEmailAndExtractedEntities(BaseModel):
     email: MongoEmail
-    entities: List[MongoCargo or MongoShip or FailedEntry]
+    entities: List[MongoCargo | MongoShip] = Field(default_factory=list) # List of entities extracted from the email
+    failed_entries: List[FailedEntry] = Field(default_factory=list) # List of failed entries
 
     audited: bool = False # Whether the email has been audited by a human, and new entities have been added for training purposes
     timestamp_audited: Optional[datetime] = None # Timestamp of when the email was audited
-    audited_entities: List = Field(default_factory=list) # List of entities to represent the email, after auditing
+    audited_entities: Optional[List] = None # List of entities to represent the email, after auditing
 
 # Setup 1
 #1. Go over all ships with no cargo pairs, i.e find all ships with ship_id not in any CargoShipPair.ship_id
