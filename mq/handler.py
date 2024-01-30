@@ -491,6 +491,7 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
     ships = []
     cargos = []
     mongo_email = email.mongo_db_object
+    mongo_email.timestamp_entities_extracted = datetime.now()
 
     for entry in entries:
         entry["email"] = mongo_email.model_dump()
