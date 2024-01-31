@@ -58,5 +58,6 @@ async def gather_extracted_entities():
     
     print(f"Added {n_added} new extractions, skipped {n_skipped} emails that were already extracted")
 
+
 if __name__ == "__main__":
     asyncio.run(gather_extracted_entities())
