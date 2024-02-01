@@ -1,0 +1,82 @@
+----------------- WEIRD ABBREVIATIONS FOR LOCATIONS AND OTHERS -----------------
+---------------- can pre-fill location cache when shit is this weird??? -------------
+please do not recirculate
+Please advise your rated tonnage for our below cargoes:
+• EX ECSA
+HMX/SMX
+1 TCT WITH HMLESS BULK
+1/2 ECSA TO RSEA
+MID FEB
+3.75 ADDCOM
++ + 
+ABT 34/38K DWT
+1 TCT WITH HMLESS BULK
+ECSA TO RSEA
+END JAN / EARLY FEB
+3.75 ADDCOMM
+• MED
+HANDY ABT 32K DWT
+DEL CMED / REDEL ECI-BANGLADESH RANGE
+15/17 FEB
+DUR ABT 40/50 DAYS
+3,75% ADD COM
+• RED SEA
+28 UP TO HMX
+DEL RED SEA / REDEL INDONESIA
+PPT/MID FEB
+DUR ABT 40 DAYS WOG
+3.75% ADD COM
+• WCI
+ABT 28K DWT
+DEL WCI / REDEL EAFRICA
+24/27 FEB
+DUR ABT 40 DAYS WOG
+3.75% ADD COM
+
+Waiting your proposals accordingly
+
+------------ Detailed email, Verbose PORTS (challange both stage 1 extraction, and stage 2 Geocoding) -----------------
+**Pref Named tonnage**
+
+Cargo: iron ore fines (FSF) in bulk
+Stowage Factor: 1,25 to 2,93 m3/t, size: up to 200 mm
+Quantity: 60.000 MT (Can do 55.000 mt +/- 10%)
+POL: Serpent's Mouth Anchorage area, Venezuela, 
+POD: Fuzhou, China
+Rate of cargo: 4500 Mt day
+Discharge rate:: 10.000 mt per day SSHINC
+Laycan: 1st of Feb – 5th of Feb
+Cond term/payment: 30/20/50 Clean Fixture/NOR/BL
+Comm: 3.75 ttl
+Free DAs in both ports
+
+Idea: 54 for non grabb vsl ( charts will pay 1 – 1.5 usd pmt for grabs) USD 55 – 55.5 pmt for Grabb fitted vsls.
+
+Have KYC & Acct background & Recap in hand.
+
+-------------- Very limited location data (kandla/ravenna) -----------------
+kandla/ravenna
+7000 t 10% blk mins
+Ppt
+Fiot
+3.75% incl. addcom
+
+mid 30s
+
+-------------- Location data, but includes weird extra city or something, trips up some GeoCoders ------------------
+----- good example for handling GeoCoding fallbacks ------
+
+HAI PHONG, VIETNAM => MARTAS, MARMARA
+11 PCS / 121 TON / 941 CBM / 332 M2 
+EQUIPMENT 
+SPOT 
+FLT H/H 
+MAX AGE 25 YEARS   UNDERDECK NON STACKABLE PL AND DRAWINGS AVAILABLE UPON INTEREST
+3.75%
+
+Good day
+
+Please send Frt 
+
+Please wait , thank you
+
