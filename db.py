@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import re
-import numpy as np
 
 # List of currently included MongoDB collections
 # 1. emails: contains all emails that have been processed by the system
