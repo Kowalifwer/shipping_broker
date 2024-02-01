@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import re
-from embeddings.models import geoloc_model, general_model
 import numpy as np
 
 # List of currently included MongoDB collections
@@ -89,40 +88,16 @@ def update_ship_entry_with_calculated_fields(existing_values: Dict):
         # Get the month as a string
         month_string = date_object.strftime("%B")
         existing_values["month"] = month_string[:3]
+    
+    # Case if month is not given - TODO: (maybe set to current month?)
+    if not existing_values.get("month", ""):
+        ...
+        # existing_values["month"] = datetime.now().strftime("%b")
+
 
     # If capacity is not specified, pass an empty string to extract_number, which will return None
     existing_values["capacity_int"] = capacity
     existing_values["month_int"] = extract_month(existing_values.get("month", ""))
-
-    create_embeddings_for_ship(existing_values)
-
-def create_embeddings_for_ship(existing_values: Dict):
-    """Modifies existing ship object in place, adding embeddings for sea, port, and general information."""
-
-    # Handle sea embedding
-    sea = existing_values.get("sea", "")
-    sea_embeddings = np.random.rand(768)
-
-    if sea:
-        sea_embeddings = geoloc_model.encode([sea], convert_to_numpy=True)[0]
-    
-    existing_values["sea_embedding"] = sea_embeddings.tolist()
-
-    # Handle port embedding
-    port = existing_values.get("port", "")
-    port_embeddings = np.random.rand(768)
-
-    if port:
-        port_embeddings = geoloc_model.encode([port], convert_to_numpy=True)[0]
-    
-    existing_values["port_embedding"] = port_embeddings.tolist()
-
-    # Handle general embedding
-    general = existing_values.get("keyword_data", "")
-    if general:
-        existing_values["general_embedding"] = general_model.encode([general], convert_to_numpy=True)[0].tolist()
-    else:
-        existing_values["general_embedding"] = np.random.rand(384).tolist()
 
 class MongoShip(BaseModel):
     # Fields to extract from email
@@ -130,11 +105,8 @@ class MongoShip(BaseModel):
 
     name: Optional[str] # Name of the ship
     status: Optional[str] # Status of the ship (e.g., open, on subs, fixed, spot, etc.)
-    port: Optional[str] # Port where the ship is currently located
-    sea: Optional[str] # Sea where the ship is currently located
     month: Optional[str] # Month when the ship is available for cargoes
     capacity: Optional[str] # Capacity of the ship
-    keyword_data: Optional[str] = "" # All important keywords across all the fields, to be tokenized and embedded for similarity matching
 
     # Fields to fill on creation
     email: MongoEmail # Email object
@@ -143,12 +115,6 @@ class MongoShip(BaseModel):
     # Fields to calculate on creation (to be used for simple queries)
     capacity_int: Optional[int] # Capacity of the ship in integer form
     month_int: Optional[int] # Month when the ship is available for cargoes in integer form
-
-    # Embeddings to calculate on creation (to be used for similarity queries)
-    sea_embedding: Optional[List[float]] # Embedding of the sea where the ship is currently located
-    port_embedding: Optional[List[float]] # Embedding of the port where the ship is currently located
-
-    general_embedding: Optional[List[float]] # Embedding of the ship's general information
 
     # Extra fields
     pairs_with: Optional[List[Any]] = Field(default_factory=list) # List of cargo IDs that this ship is paired with
@@ -179,46 +145,6 @@ def update_cargo_entry_with_calculated_fields(existing_values: Dict):
 
     existing_values["commission_float"] = comission
 
-    create_embeddings_for_cargo(existing_values)
-
-def create_embeddings_for_cargo(existing_values: Dict):
-    """Modifies existing cargo objects in place, adding embeddings for sea, port, and general information."""
-    # Handle sea embedding
-    sea_from = existing_values.get("sea_from", "")
-    sea_to = existing_values.get("sea_to", "")
-    sea_from_embeddings = np.random.rand(768)
-    sea_to_embeddings = np.random.rand(768)
-
-    if sea_from:
-        sea_from_embeddings = geoloc_model.encode([sea_from], convert_to_numpy=True)[0]
-    if sea_to:
-        sea_to_embeddings = geoloc_model.encode([sea_to], convert_to_numpy=True)[0]
-
-    # Give more weight to the SEA FROM embedding, since that is where the cargo is currently located.
-    existing_values["sea_embedding"] = (sea_from_embeddings * 0.67 + sea_to_embeddings * 0.33).tolist()
-
-    # Handle port embedding
-    port_from = existing_values.get("port_from", "")
-    port_to = existing_values.get("port_to", "")
-    port_from_embeddings = np.random.rand(768)
-    port_to_embeddings = np.random.rand(768)
-
-    if port_from:
-        port_from_embeddings = geoloc_model.encode([port_from], convert_to_numpy=True)[0]
-    if port_to:
-        port_to_embeddings = geoloc_model.encode([port_to], convert_to_numpy=True)[0]
-    
-    # Give more weight to the PORT FROM embedding, since that is where the cargo is currently located.
-    existing_values["port_embedding"] = (port_from_embeddings * 0.67 + port_to_embeddings * 0.33).tolist()
-
-    # Handle general embedding
-    general = existing_values.get("keyword_data", "")
-    if general:
-        existing_values["general_embedding"] = general_model.encode([general], convert_to_numpy=True)[0].tolist()
-    else:
-        existing_values["general_embedding"] = np.random.rand(384).tolist()
-
-
 class MongoCargo(BaseModel):
     id: Optional[Any] = Field(alias="_id", default=None) # ID of the cargo generated by MongoDB
 
@@ -231,7 +157,6 @@ class MongoCargo(BaseModel):
     sea_to: Optional[str] # Sea of discharge
     month: Optional[str] # Month of shipment
     commission: Optional[str] # Commission percentage (e.g., 2.5%)
-    keyword_data: Optional[str] = "" # All important keywords across all the fields, to be tokenized and embedded for similarity matching
 
     # Fields to fill on creation
     email: MongoEmail # Email object
@@ -243,12 +168,6 @@ class MongoCargo(BaseModel):
 
     month_int: Optional[int] # Month when the ship is available for cargoes in integer form
     commission_float: Optional[float] # Commission percentage in float form
-
-    # Embeddings to calculate on creation (to be used for similarity queries)
-    sea_embedding: Optional[List[float]] # Embedding of the sea where the cargo is currently located
-    port_embedding: Optional[List[float]] # Embedding of the port where the cargo is currently located
-
-    general_embedding: Optional[List[float]] # Embedding of the cargo's general information
 
     # Extra fields
     pairs_with: Optional[List[Any]] = Field(default_factory=list) # List of ship IDs that this cargo is paired with
