@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     ''' Run at startup
         Initialise the Client and add it to app.state
     '''
-
+    # Run any init code declared in setup.py
     await init_async_functions()
 
     yield
