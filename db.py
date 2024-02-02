@@ -193,6 +193,11 @@ class MongoEmailAndExtractedEntities(BaseModel):
     timestamp_audited: Optional[datetime] = None # Timestamp of when the email was audited
     audited_entities: Optional[List] = None # List of entities to represent the email, after auditing
 
+class KnownLocations(BaseModel):
+    name: str
+    longitude: float
+    latitude: float
+
 # Setup 1
 #1. Go over all ships with no cargo pairs, i.e find all ships with ship_id not in any CargoShipPair.ship_id
 #2. For each ship, find all cargoes that match the ship's criteria
