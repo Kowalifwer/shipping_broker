@@ -34,3 +34,10 @@ db_client = db_hanlder["broker"]
 openai_client = AsyncOpenAI(
     api_key=config['openai']['api_key'],
 )
+
+# Initialize/setup any async functions
+async def init_async_functions():
+    # Create indexes
+
+    # Create index for faster hash-like string search on locations
+    await db_client["known_locations"].create_index("location", unique=True)

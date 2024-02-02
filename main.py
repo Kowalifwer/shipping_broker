@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 import argparse
 
+from setup import init_async_functions
 from realtime_status_logger import live_logger
 from mq.handler import setup_to_frontend_template_data, MQ_HANDLER
 
@@ -20,6 +21,9 @@ async def lifespan(app: FastAPI):
     ''' Run at startup
         Initialise the Client and add it to app.state
     '''
+
+    await init_async_functions()
+
     yield
     ''' Run on shutdown
         Close the connection
