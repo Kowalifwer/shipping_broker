@@ -27,8 +27,7 @@ email_client = EmailClientAzure(azure_connection)
 
 # Connect to MongoDB
 db_hanlder = AsyncIOMotorClient(config['mongo']['connection_local'])
-# db_hanlder = AsyncIOMotorClient(config['mongo']['connection_string'])
-db_client = db_hanlder["broker"]
+db_client = db_hanlder["broker_new"]
 
 # Instantiate openai client
 openai_client = AsyncOpenAI(
