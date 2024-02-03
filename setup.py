@@ -40,4 +40,9 @@ async def init_async_functions():
     # Create indexes
 
     # Create index for faster hash-like string search on locations
-    await db_client["known_locations"].create_index("location", unique=True)
+    await db_client["known_locations"].create_index("name", unique=True)
+
+    # Geospatial search indexes: TODO: TEST BEFORE APPLYING - might not be necessary.
+    # await db_client["ships"].create_index([('location_geocoded', '2dsphere')])
+    # await db_client["cargoes"].create_index([('location_from_geocoded', '2dsphere')])
+    # await db_client["cargoes"].create_index([('location_to_geocoded', '2dsphere')])
