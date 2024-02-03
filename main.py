@@ -77,7 +77,6 @@ def shutdown_handler():
 
 app.state.shutdown_handler = shutdown_handler
 
-
 # Additional arguments to run the Uvicorn server
 parser = argparse.ArgumentParser()
 
