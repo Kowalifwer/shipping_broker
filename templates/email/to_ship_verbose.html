@@ -25,8 +25,10 @@
             <p style="font-weight: bold;">Ship Name: {{ ship.name }}</p>
             <p style="font-weight: bold;">Ship Status: {{ ship.status }}</p>
             <hr>
-            <p style="font-weight: bold;">Ship Port: {{ ship.port }}</p>
-            <p style="font-weight: bold;">Ship Sea: {{ ship.sea }}</p>
+            <p style="font-weight: bold;">Ship GPT location: {{ ship.location.port }}, {{ ship.location.sea }}, {{ ship.location.ocean }}</p>
+
+            <p style="font-weight: bold;">Ship Address: {{ ship.location_geocoded.address }}</p>
+            <p style="font-weight: bold;">Ship Coordinates (LONG, LAT): {{ ship.location_geocoded.location.coordinates }}</p>
         </div>
         <div style="float: right; width: 48%; border: 1px solid #ddd; padding: 10px; background-color: #fff;">
             <p style="font-weight: bold;">Ship Capacity: {{ ship.capacity }}</p>
@@ -40,12 +42,17 @@
 
 
     <div style="margin-top: 20px;">
-        <h2 style="color: navy; margin: 20px 0; text-align: center;">TOP 5 CARGO MATCHES</h2>
+        <h2 style="color: navy; margin: 20px 0; text-align: center;">{{ cargos|length }} CARGO MATCHES FOUND!</h2>
         {% for cargo in cargos %}
             <div style="margin-bottom: 20px; border: 1px solid #ddd; background-color: #fff; overflow: hidden; clear: both;">
                 <h4 style="background-color: #f5f5f5; padding: 10px; margin: 0;">Cargo suggestion {{ loop.index }}</h4>
+
+                <p style="font-weight: bold;">Cargo Name: {{ cargo.name }}</p>
+                <p style="font-weight: bold;">Cargo Capacity range: {{ cargo.capacity_min_int }} - {{ cargo.capacity_max_int }}</p>
+                <p style="font-weight: bold;">Cargo Month: {{ cargo.month_int }}</p>
+                <p style="font-weight: bold;">Cargo ORIGINAL comission: {{ cargo.commission_float }}</p>
                 
-                <p style="font-weight: bold;">Cargo email:</p>
+                <p style="font-weight: bold;">Original Email from which cargo was retrieved:</p>
                 <div style="border: 1px solid #ccc; padding: 10px; background-color: #fff;">
                     {{ cargo.email.body | safe }}
                 </div>
