@@ -6,32 +6,32 @@ def capacity_modifier(ship: MongoShip, cargo: MongoCargo) -> float:
     score = 0
     """Modify score based on ship capacity vs cargo quantity logic."""
     if ship.capacity_int:
-        if not (cargo.quantity_min_int and cargo.quantity_max_int):
+        if not (cargo.capacity_min_int and cargo.capacity_max_int):
             score -= 2
             return score # penalize the score if cargo quantity is not specified
         
         # SHIP TOO SMALL
-        if ship.capacity_int < cargo.quantity_min_int * 0.90:
+        if ship.capacity_int < cargo.capacity_min_int * 0.90:
             score -= 5
             return score # heavily penalize the score if ship capacity is less than cargo lower bound
 
         # SHIP ACCEPTABLE
-        if ship.capacity_int > cargo.quantity_min_int:
+        if ship.capacity_int > cargo.capacity_min_int:
             score += 1
         
         # SHIP GOOD
-        if ship.capacity_int > cargo.quantity_max_int * 0.85:
+        if ship.capacity_int > cargo.capacity_max_int * 0.85:
             score += 2
 
         # SHIP GREAT
-        if cargo.quantity_max_int * 1.10 >= ship.capacity_int >= cargo.quantity_max_int * 0.95:
+        if cargo.capacity_max_int * 1.10 >= ship.capacity_int >= cargo.capacity_max_int * 0.95:
             score += 5
         
         # SHIP TOO BIG
-        if ship.capacity_int > cargo.quantity_max_int * 1.5:
+        if ship.capacity_int > cargo.capacity_max_int * 1.5:
             score -= 2
         
-        if ship.capacity_int > cargo.quantity_max_int * 2:
+        if ship.capacity_int > cargo.capacity_max_int * 2:
             score -= 5
         
     return score

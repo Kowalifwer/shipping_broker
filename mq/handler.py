@@ -14,7 +14,8 @@ from realtime_status_logger import live_logger
 from mail import EmailMessageAdapted
 from db import MongoEmail, update_ship_entry_with_calculated_fields, update_cargo_entry_with_calculated_fields, FailedEntry, MongoEmailAndExtractedEntities
 from mq import scoring
-from gpt_prompts import prompt
+from gpt_prompts import prompt_geocode_optimized as prompt
+from geocoding import geocode_location_with_retry
 
 async def mailbox_read_producer(stoppage_event: asyncio.Event, queue: asyncio.Queue[EmailMessageAdapted]):
     live_logger.report_to_channel("extra", f"Starting MULTI mailbox read producer.")
@@ -172,7 +173,7 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
         date_from = datetime.utcnow() - timedelta(days=21)
 
         # Fields that will be counted to prioritize ships with more filled-in fields
-        fields_to_count = ["port", "sea", "month", "capacity"] #name, status, keyword_data - ignored for now since they will compete with more important fields
+        fields_to_count = ["name", "status", "month", "capacity", "location_geocoded"] #name, status, keyword_data - ignored for now since they will compete with more important fields
 
         # Create the aggregation pipeline
         pipeline = [
@@ -181,6 +182,12 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
                 "$match": {
                     "pairs_with": [],
                     "timestamp_created": {"$gte": date_from},
+
+                    # Ensure that the ship has a geocoded location
+                    "location_geocoded.location.coordinates": {
+                        "$type": "array",
+                        "$size": 2
+                    }, # Only match ships with geocoded location
                     # "capacity_int": {"$ne": None}, # Pointless to try and match ships without capacity (for now, at least)
                 }
             },
@@ -213,7 +220,7 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
 
         async for ship in db_cursor:
             ship = MongoShip(**ship)
-            print(f"Ship added to queue: {ship.name}, {ship.port}, {ship.sea}, {ship.month}, {ship.capacity_int} - {ship.timestamp_created}")
+            print(f"Ship added to queue: {ship.name}, {ship.location_geocoded.address}, {ship.month}, {ship.capacity_int} - {ship.timestamp_created}")
             await queue.put(ship)
             if stoppage_event.is_set():
                 live_logger.report_to_channel("info", f"Producer closed verified.")
@@ -243,17 +250,17 @@ async def item_matching_consumer(stoppage_event: asyncio.Event, queue_from: asyn
                 existing_data = []
 
             existing_data.append({
-                    "ship": ship.name,
-                    "ship_port": ship.port,
-                    "ship_sea": ship.sea,
-                    "ship_month": ship.month,
-                    "ship_email_contents": ship.email.body,
-                    "ship_quantity": ship.capacity_int,
-                    "matching_cargos": matching_cargos
-                })
+                "ship": ship.name,
+                "ship_location": ship.location,
+                "ship_location_geocoded": ship.location_geocoded,
+                "ship_month": ship.month,
+                "ship_email_contents": ship.email.body,
+                "ship_capacity": ship.capacity_int,
+                "matching_cargos": matching_cargos
+            })
 
             with open(filename, "w") as file:
-                json.dump(existing_data, file, indent=4)
+                json.dump(existing_data, file, indent=4, default=str)
                 
             ship.pairs_with = [ObjectId(cargo["id"]) for cargo in matching_cargos]
 
@@ -365,10 +372,10 @@ MQ_MAILBOX: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=2000)
 MQ_GPT_EMAIL_TO_DB: asyncio.Queue[EmailMessageAdapted] = asyncio.Queue(maxsize=500)
 
 # Message Queue for stage 3 - Item matching
-MQ_ITEM_MATCHING: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=50)
+MQ_ITEM_MATCHING: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=1500)
 
 # Message Queue for stage 4 - Email send for Ships with matched cargos
-MQ_EMAIL_SEND: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=1)
+MQ_EMAIL_SEND: asyncio.Queue[MongoShip] = asyncio.Queue(maxsize=20)
 
 # Please respect the complex signature of this dictionary. You have to create your async functions with the specified signature, and add them to the dictionary below.
 MQ_HANDLER: Dict[str, Tuple[
@@ -380,7 +387,7 @@ MQ_HANDLER: Dict[str, Tuple[
     "mailbox_read_consumer": (mailbox_read_consumer, asyncio.Event(), MQ_MAILBOX, MQ_GPT_EMAIL_TO_DB), # type: ignore - temporary due to https://github.com/Kowalifwer/shipping_broker/issues/2
 
 
-    "5_gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB), #temporarily, declare number of tasks in the function name
+    "6_gpt_email_consumer": (gpt_email_consumer, asyncio.Event(), MQ_GPT_EMAIL_TO_DB), #temporarily, declare number of tasks in the function name
 
     "item_matching_producer": (item_matching_producer, asyncio.Event(), MQ_ITEM_MATCHING),
     "item_matching_consumer": (item_matching_consumer, asyncio.Event(), MQ_ITEM_MATCHING, MQ_EMAIL_SEND), # type: ignore - temporary due to
@@ -469,7 +476,7 @@ async def email_to_entities_via_openai(email_message: EmailMessageAdapted) -> di
 
     response = await openai_client.chat.completions.create(
         model="gpt-3.5-turbo-1106",
-        temperature=0.2,
+        temperature=0.22,
         # top_p=1,
         response_format={ "type": "json_object" },
         messages=[
@@ -498,6 +505,12 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
         entry["email"] = mongo_email.model_dump()
 
         entry_type = entry.pop("type", None)
+        if entry_type is None:
+            entry["type"] = "unknown"
+            entry["reason"] = "No entry type specified"
+            validation_failed_entries.append(FailedEntry(**entry))
+
+        entry_type = entry_type.lower()
         # Validate entity is Ship or Cargo. Otherwise, add to validation_failed_entries
         if entry_type not in ["ship", "cargo"]:
             entry["type"] = entry_type
@@ -510,9 +523,18 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
             update_ship_entry_with_calculated_fields(entry)
 
             try:
-                ships.append(MongoShip(**entry))
+                ship = MongoShip(**entry)
+
+                ship.location_geocoded = await geocode_location_with_retry(ship.location)
+
+                ships.append(ship)
 
             except ValidationError as e:
+                entry["type"] = entry_type
+                entry["reason"] = str(e)
+                validation_failed_entries.append(FailedEntry(**entry))
+            
+            except Exception as e:
                 entry["type"] = entry_type
                 entry["reason"] = str(e)
                 validation_failed_entries.append(FailedEntry(**entry))
@@ -522,9 +544,19 @@ async def insert_gpt_entries_into_db(entries: List[dict], email: EmailMessageAda
             update_cargo_entry_with_calculated_fields(entry)
 
             try:
-                cargos.append(MongoCargo(**entry))
+                cargo = MongoCargo(**entry)
+
+                cargo.location_from_geocoded = await geocode_location_with_retry(cargo.location_from)
+                cargo.location_to_geocoded = await geocode_location_with_retry(cargo.location_to)
+
+                cargos.append(cargo)
 
             except ValidationError as e:
+                entry["type"] = entry_type
+                entry["reason"] = str(e)
+                validation_failed_entries.append(FailedEntry(**entry))
+            
+            except Exception as e:
                 entry["type"] = entry_type
                 entry["reason"] = str(e)
                 validation_failed_entries.append(FailedEntry(**entry))
@@ -563,34 +595,68 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
     # STAGE 1 - HARD FILTERS (DB QUERY) - stuff that will completely disqualify a cargo from being matched with a ship (can be done fully via DB query)
     # TBD... (for now we retrieve all cargos, since we don't have enough data to filter them out)
 
+    if ship.location_geocoded is None:
+        raise ValueError("Ship location is not geocoded.")
+
+    ship_coordinates = ship.location_geocoded.location.coordinates
+
     #fetch cargos from past 3 days only
     date_from = datetime.now() - timedelta(days=31)
 
     query_cargos: Dict[str, Dict] = {
         "timestamp_created": {"$gte": date_from},
     }
+
     if ship.capacity_int: # Capacity must be within 20% of the bounds
-        query_cargos["quantity_max_int"] = {"$gte": ship.capacity_int * 0.80}
-        query_cargos["quantity_min_int"] = {"$lte": ship.capacity_int * 1.20}
+        query_cargos["capacity_max_int"] = {"$gte": ship.capacity_int * 0.80}
+        query_cargos["capacity_min_int"] = {"$lte": ship.capacity_int * 1.20}
+
     if ship.month_int: # Month must be within 1 month of the bounds
         query_cargos["month_int"] = {"$gte": ship.month_int - 1, "$lte": ship.month_int + 1}
+    
+    query_cargos["commission_float"] = {"$lte": 3.75} # Comission must be less than 3.75%
 
-    db_cargos = await db_client["cargos"].find(query_cargos).sort(
-        "timestamp_created", -1,
-    ).to_list(None)
+    # Assuming `location_from_geocoded.location` is the field storing the Point object
+    query_cargos["location_from_geocoded.location"] = {
+        "$near": {
+            "$geometry": {
+                "type": "Point",
+                "coordinates": ship_coordinates  # Replace with your actual coordinates
+            },
+            "$maxDistance": 1_500_000  # Replace with your desired max distance in meters (1,500 km)
+        }
+    }
+
+    db_cargos = await db_client["cargos"].find(query_cargos).to_list(5)
+
+    return [
+        {
+            "id": str(cargo["_id"]),
+
+            "cargo_capacity_max": cargo["capacity_max_int"],
+            "cargo_capacity_min": cargo["capacity_min_int"],
+            "cargo_month": cargo["month"],
+            "cargo_commission": cargo["commission"],
+
+            "cargo_location_from": cargo["location_from"],
+            "cargo_location_to": cargo["location_to"],
+
+            "cargo_location_from_geocoded": cargo["location_from_geocoded"],
+            "cargo_location_to_geocoded": cargo["location_to_geocoded"],
+
+            "email_body": cargo["email"]["body"],
+        } for cargo in db_cargos if cargo["location_from_geocoded"] and cargo["location_to_geocoded"]
+        # TODO: The hack above is to filter out cargos that don't have full locations. Likely only if the geocoding failed OR even worse- the field has wrongly been classified as cargo, and does not even have a location_to (validation check fail)
+        # https://github.com/Kowalifwer/shipping_broker/issues/3
+    ]
+
+    # hard filter subset to be ordered by &near to the ship's location. this is one ranked list of cargos.
+    # second ranked list of cargos is based on the simple scores, and then the two rankings combined to get the final ranking.
+
     cargos = [MongoCargo(**cargo) for cargo in db_cargos]
     simple_scores = []
-
-    port_embeddings = []
-    sea_embeddings = []
-    general_embeddings = []
     
     for cargo in cargos:
-        ## make sure embedding has 384 items
-
-        sea_embeddings.append(cargo.sea_embedding)
-        port_embeddings.append(cargo.port_embedding)
-        general_embeddings.append(cargo.general_embedding)
 
         score = 0
         # STAGE 2 - BASIC DB FIELDS SCORE -> CALCULATE SCORE from simple fields, such as capacity_int, month_int, comission_float...
@@ -616,18 +682,13 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
 
     simple_scores = scoring.min_max_scale_robust(simple_scores, -0.1, 1) # Normalized to be between -0.1 and 1.0
 
-    # simple_scores
-    sea_scores = cosine_similarity([ship.sea_embedding], sea_embeddings)[0]
-    port_scores = cosine_similarity([ship.port_embedding], port_embeddings)[0]
-    general_scores = cosine_similarity([ship.general_embedding], general_embeddings)[0]
-
     # STAGE 4 - FINAL SCORE -> COMBINE THE SCORES FROM STAGE 2 AND STAGE 3, AND SORT THE CARGOS BY SCORE
     # Mean rank? Weighted Sum (normalize scores first)? TBD...
     final_scores = [
         {
             "id": str(cargos[i].id),
-            "cargo_capacity_max": cargos[i].quantity_max_int,
-            "cargo_capacity_min": cargos[i].quantity_min_int,
+            "cargo_capacity_max": cargos[i].capacity_max_int,
+            "cargo_capacity_min": cargos[i].capacity_min_int,
             "cargo_month": cargos[i].month,
             "cargo_port_from": cargos[i].port_from,
             "cargo_port_to": cargos[i].port_to,
@@ -636,18 +697,11 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
             "cargo_commission": cargos[i].commission,
 
             "total_score": sum(scores),
-            "simple_score": simple_scores[i],
-            "port_score": port_scores[i],
-            "sea_score": sea_scores[i],
-            "general_score": general_scores[i],
             "email_body": cargos[i].email.body,
         } for i, scores in enumerate(zip(
             simple_scores,  # Simple score (db scores) are important - hence should be multiplied
-            port_scores * 2,  # Port match should be scored quite high?? most precise location match our system can do.
-            sea_scores * 1.25,
-            general_scores * 1.25,
-        )
-    )]
+        ))
+    ]
     final_scores.sort(key=lambda x: x["total_score"], reverse=True)
 
     return final_scores[:max_n]
