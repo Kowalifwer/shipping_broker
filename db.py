@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import re
-from geocoding import geocode_location_with_retry
 
 # List of currently included MongoDB collections
 # 1. emails: contains all emails that have been processed by the system
@@ -74,7 +73,7 @@ class LocationForGeocoding(BaseModel):
 class GeoJsonLocation(BaseModel):
     """Location object in GeoJSON format."""
     type: str = "Point"
-    coordinates: List[float]
+    coordinates: List[float] = []
 
 class GeocodedLocation(BaseModel):
     """Location object typically obtained and filled from geocoding a location string."""
@@ -146,7 +145,7 @@ class MongoShip(BaseModel):
     # Fields to calculate on creation (to be used for simple queries)
     capacity_int: Optional[int] # Capacity of the ship in integer form
     month_int: Optional[int] # Month when the ship is available for cargoes in integer form
-    location_geocoded: Optional[GeocodedLocation] # Geocoded location of the ship
+    location_geocoded: Optional[GeocodedLocation] = None # Geocoded location of the ship
 
     # Extra fields
     pairs_with: Optional[List[Any]] = Field(default_factory=list) # List of cargo IDs that this ship is paired with
@@ -158,22 +157,23 @@ class MongoShip(BaseModel):
 def update_cargo_entry_with_calculated_fields(existing_values: Dict):
     """Modifies existing cargo object in place, adding calculated fields and vector embeddings."""
 
-    min_max_weights = extract_weights(existing_values.get("quantity", ""))
+    min_max_weights = extract_weights(existing_values.get("capacity", ""))
     if min_max_weights:
-        existing_values["quantity_min_int"] = min_max_weights[0] if min_max_weights[0] >= 1000 else min_max_weights[0] * 1000
-        existing_values["quantity_max_int"] = min_max_weights[1] if min_max_weights[1] >= 1000 else min_max_weights[1] * 1000
+        existing_values["capacity_min_int"] = min_max_weights[0] if min_max_weights[0] >= 1000 else min_max_weights[0] * 1000
+        existing_values["capacity_max_int"] = min_max_weights[1] if min_max_weights[1] >= 1000 else min_max_weights[1] * 1000
     else:
-        existing_values["quantity_min_int"] = None
-        existing_values["quantity_max_int"] = None
+        existing_values["capacity_min_int"] = None
+        existing_values["capacity_max_int"] = None
 
     # If capacity is not specified, pass an empty string to extract_number, which will return None
     existing_values["month_int"] = extract_month(existing_values.get("month", ""))
 
     # handle commission calculation
     comission = 10.0 # set to high number default
-    match = re.search(r'\b(\d+(?:\.\d+)?)\b', existing_values.get("commission", ""))
+    match = re.search(r'\b(\d+(?:[.,]\d+)?)\b', existing_values.get("commission", ""))
     if match:
-        comission = float(match.group(0))
+        match = match.group(0).replace(",", ".") # handle comma as decimal separator too
+        comission = float(match)
 
     existing_values["commission_float"] = comission
 
@@ -204,14 +204,14 @@ class MongoCargo(BaseModel):
     timestamp_created: datetime = Field(default_factory=datetime.now) # Timestamp of when the cargo was created
 
     # Fields to calculate on creation (to be used for simple queries)
-    quantity_min_int: Optional[int] # Capacity of the cargo lower bound in integer form
-    quantity_max_int: Optional[int] # Capacity of the cargo upper bound in integer form
+    capacity_min_int: Optional[int] # Capacity of the cargo lower bound in integer form
+    capacity_max_int: Optional[int] # Capacity of the cargo upper bound in integer form
 
     month_int: Optional[int] # Month when the ship is available for cargoes in integer form
     commission_float: Optional[float] # Commission percentage in float form
 
-    location_from_geocoded: Optional[GeocodedLocation] # Geocoded location of the cargo pickup
-    location_to_geocoded: Optional[GeocodedLocation] # Geocoded location of the cargo delivery
+    location_from_geocoded: Optional[GeocodedLocation] = None # Geocoded location of the cargo pickup
+    location_to_geocoded: Optional[GeocodedLocation] = None # Geocoded location of the cargo delivery
 
     # Extra fields
     pairs_with: Optional[List[Any]] = Field(default_factory=list) # List of ship IDs that this cargo is paired with
