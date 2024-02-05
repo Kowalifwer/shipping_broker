@@ -169,7 +169,7 @@ def update_cargo_entry_with_calculated_fields(existing_values: Dict):
     existing_values["month_int"] = extract_month(existing_values.get("month", ""))
 
     # handle commission calculation
-    comission = 10.0 # set to high number default
+    comission = 20.0 # set to high number default
     match = re.search(r'\b(\d+(?:[.,]\d+)?)\b', existing_values.get("commission", ""))
     if match:
         match = match.group(0).replace(",", ".") # handle comma as decimal separator too
