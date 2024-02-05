@@ -1,5 +1,5 @@
-from shipping_broker.setup import db_client
-from shipping_broker.db import update_cargo_entry_with_calculated_fields, update_ship_entry_with_calculated_fields
+from setup import db_client
+from db import update_cargo_entry_with_calculated_fields, update_ship_entry_with_calculated_fields
 import asyncio
 
 async def add_or_update_embeddings():
