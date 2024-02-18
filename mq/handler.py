@@ -177,22 +177,15 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
 
         # Create the aggregation pipeline
         pipeline = [
+            # Your existing $match stage
             {
-                # Some hard filters to prevent useless ships from being matched.
                 "$match": {
                     "pairs_with": [],
                     "timestamp_created": {"$gte": date_from},
-
-                    # Ensure that the ship has a geocoded location
-                    "location_geocoded.location.coordinates": {
-                        "$type": "array",
-                        "$size": 2
-                    }, # Only match ships with geocoded location
-                    # "capacity_int": {"$ne": None}, # Pointless to try and match ships without capacity (for now, at least)
+                    "location_geocoded.location.coordinates": {"$type": "array", "$size": 2},
                 }
             },
-            # This will add a new field to each document, that will store count of the number of non-empty fields in the document.
-            # Idea is to prioritize ships with more filled-in fields.
+            # Your existing logic to add a count of non-empty fields
             {
                 "$addFields": {
                     "nonEmptyFields": {
@@ -212,21 +205,47 @@ async def item_matching_producer(stoppage_event: asyncio.Event, queue: asyncio.Q
                 }
             },
             {
+                "$sort": {"nonEmptyFields": -1}  # Sort before grouping to make the first document the highest priority
+            },
+            # Group by your specified fields to eliminate duplicates, retaining the document with the most nonEmptyFields
+            {
+                "$group": {
+                    "_id": {
+                        "name": "$name",
+                        "status": "$status",
+                        "capacity_int": "$capacity_int",
+                        "month_int": "$month_int",
+                        "location": "$location",
+                        # "location_geocoded.name": "$location_geocoded.name",
+                    },
+                    "document": {"$first": "$$ROOT"}  # Retain the first document in each group
+                }
+            },
+            # Replace the root with the document retained above, to get back to the original document structure
+            {
+                "$replaceRoot": {"newRoot": "$document"}
+            },
+            # Your existing sort, if necessary, applied again on the de-duplicated list
+            {
                 "$sort": {"nonEmptyFields": -1, "timestamp_created": -1}
             }
         ]
-
+    
         db_cursor = db_client["ships"].aggregate(pipeline)
 
         async for ship in db_cursor:
             ship = MongoShip(**ship)
-            print(f"Ship added to queue: {ship.name}, {ship.location_geocoded.address}, {ship.month}, {ship.capacity_int} - {ship.timestamp_created}")
+            print(f"Ship added to queue: {ship.name}, {ship.location_geocoded.address}, {ship.month}, {ship.capacity_int} - {ship.timestamp_created}") # type: ignore (will have an address guaranteed, based on queries above)
             await queue.put(ship)
             if stoppage_event.is_set():
                 live_logger.report_to_channel("info", f"Producer closed verified.")
                 return
         else:
             print("Ship cursor exchausted. Will go again in 3 seconds.")
+
+            # Temorarily, avoid another run of the cursor, by setting the stoppage event.
+            stoppage_event.set()
+
             await asyncio.sleep(3)
 
 async def item_matching_consumer(stoppage_event: asyncio.Event, queue_from: asyncio.Queue[MongoShip], queue_to: asyncio.Queue[MongoShip]):
@@ -434,6 +453,9 @@ async def add_email_to_db(email_message: EmailMessageAdapted) -> Union[str, bool
                 {"id": email_message.id},
                 {"body": email_message.body}
                 # {"subject": email_message.subject, "sender": email_message.sender},
+
+                # Date recieved - within a day or so is common ?
+                # 
             ]
         })
     except Exception as e:
@@ -614,7 +636,11 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
     if ship.month_int: # Month must be within 1 month of the bounds
         query_cargos["month_int"] = {"$gte": ship.month_int - 1, "$lte": ship.month_int + 1}
     
-    query_cargos["commission_float"] = {"$lte": 3.75} # Comission must be less than 3.75%
+    query_cargos["commission_float"] = {"$lte": 5.00} # Comission must be less than 3.75%
+
+    # Locations must be non-empty!
+    query_cargos["location_from_geocoded"] = {"$exists": True, "$ne": None}
+    query_cargos["location_to_geocoded"] = {"$exists": True, "$ne": None}
 
     # Assuming `location_from_geocoded.location` is the field storing the Point object
     query_cargos["location_from_geocoded.location"] = {
@@ -627,7 +653,41 @@ async def match_cargos_to_ship(ship: MongoShip, max_n: int = 5) -> List[Any]:
         }
     }
 
-    db_cargos = await db_client["cargos"].find(query_cargos).to_list(5)
+    seen_combinations = set()
+    result = []
+    expected_unique_fields = ["name", "capacity_min_int", "capacity_max_int", "month_int", "commission_float"]
+    async for cargo in db_client["cargos"].find(query_cargos):
+        # Construct a unique key for each cargo based on specified fields
+        cargo_key = tuple(cargo[field] for field in expected_unique_fields)
+
+        if cargo_key not in seen_combinations:
+            # This cargo is unique; process and add it to the results
+            seen_combinations.add(cargo_key)
+            
+            # Formulate cargo details (modify this part as needed to include relevant information)
+            cargo_details = {
+                "id": str(cargo["_id"]),
+                "cargo_capacity_max": cargo.get("capacity_max_int"),
+                "cargo_capacity_min": cargo.get("capacity_min_int"),
+                "cargo_month": cargo["month"],
+                "cargo_commission": cargo["commission"],
+
+                "cargo_location_from": cargo["location_from"],
+                "cargo_location_to": cargo["location_to"],
+
+                "cargo_location_from_geocoded": cargo["location_from_geocoded"],
+                "cargo_location_to_geocoded": cargo["location_to_geocoded"],
+
+                "email_body": cargo["email"]["body"],
+            }
+            
+            result.append(cargo_details)
+                    
+            # Stop processing if we've reached the desired number of results
+            if len(result) == max_n:
+                break
+    
+    return result
 
     return [
         {

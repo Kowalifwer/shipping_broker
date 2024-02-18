@@ -87,7 +87,7 @@ class EmailMessageLike(Protocol):
 
 # Declare all the types that the EmailMessageAdapted class has support for.
 # If you want to add support for a new class, add it to this list.
-AdaptorSupportedClasses = Union[BaseEmailMessage, AzureEmailMessage]
+AdaptorSupportedClasses = BaseEmailMessage | AzureEmailMessage
 
 class EmailMessageAdapted(EmailMessageLike):
     """
@@ -205,6 +205,7 @@ class EmailMessageAdapted(EmailMessageLike):
                 recipients=self.recipients,
                 date_received=self.date_received,
                 body=self.body,
+                embeddings=self.embeddings,
             )
 
 ## End of additional methods for EmailMessageAdapted class

@@ -22,6 +22,7 @@ Remember, you must include ONLY and ALL the expected fields, and use a JSON form
 	             "sea": "[NEAREST SEA to entity location. Expand abbreviations into full form]",
 	             "ocean": "[NEAREST OCEAN to entity. Expand abbreviations into full form]"
              },
+             "commission": "[any relevant broker commission extracted as a percentage, i.e (1.25%, 2.5%, ...)]"
              
             ... [rest of expected fields]
         }
