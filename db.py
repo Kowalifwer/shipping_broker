@@ -10,44 +10,63 @@ import re
 # 4. extractions: contains all emails and their extracted entities, to be used for training and fine-tuning the model
 # 5. failed_entries: contains all emails and their extracted objects, that failed validation and were not added to the primary collections
 
-def extract_number(s: str) -> Optional[int]:
-    # Remove commas from the text
-    text = s.replace(',', '')
+def extract_number(input_str: str) -> Optional[int]:
+    # Preprocess 1: If there is a range - take the right hand side: i.e (10k - 35k) -> 35k
+    input_str = input_str.split("-")[-1]
+    
+    # Preprocess 2: Remove decimal parts when exactly two digits follow the period or comma
+    input_str = re.sub(r'[\.,]\d{2}\b', '', input_str)
+    
+    # Find all sequences of digits, possibly separated by commas
+    matches = re.findall(r'(\d{1,3}(?:,\d{3})*)', input_str)
+    
+    # Join matches and remove commas to form a single number string
+    num_str = ''.join(matches).replace(',', '')
 
-    # Define a regular expression pattern to find integer values
-    pattern = r'\b(\d+)\b'
+    # Convert to integer if not empty, otherwise return None or an empty string
+    value = int(num_str) if num_str else None
 
-    # Find the first match in the text
-    match = re.search(pattern, text)
-
-    # Extract the integer value
-    if match:
-        value = int(match.group(1))
-    else:
-        # Handle the case where no match is found (optional)
-        value = None
+    if value:
+        # Handle case where small number is found (e.g., 0.5, 0.75, etc.) and must be multiplied by 1000 (k or K = 1000)
+        if value < 1000:
+            value = value * 1000
 
     return value
 
-def extract_weights(s: str) -> Optional[Tuple[int, int]]:
-    # Define a regular expression pattern to find integer values with various separators
-    text = s.replace(",","")
-    pattern = r'\b(\d+)'
+def extract_weights(s: str) -> Tuple[int, int] | Tuple[None, None]:
+
+    # Convert commas used as decimal points to periods
+    text = re.sub(r'(?<=\d),(?=\d)', '.', s)
+
+    # Define a regular expression pattern to find both integer and decimal values
+    # Exclude matches directly followed by "%" 
+    pattern = r'\b(\d+(?:\.\d+)?)(?!\s*[%|pct])(?=\D|$)'
 
     # Find all matches in the text
     matches = re.findall(pattern, text)
 
-    # Extract the integer values
+    # Extract the number values as floats
     if not matches:
-        return None
+        return None, None
 
-    if len(matches) == 1: # Will return the same value for both upper and lower
-        return (int(matches[0]), int(matches[0]))
-    
+    matches = [float(match) for match in matches]
+
+    # Handle case where small number is found (e.g., 0.5, 0.75, etc.) and must be multiplied by 1000 (k or K = 1000)
+    if len(matches) > 0:
+        if matches[0] < 1000:
+            matches[0] = matches[0] * 1000
+
     if len(matches) > 1:
-        return (int(matches[0]), int(matches[1]))
+        if matches[1] < 1000:
+            matches[1] = matches[1] * 1000
+
+    if len(matches) == 1:  # Return the same value for both upper and lower bounds if only one number is found
+        return int(matches[0]), int(matches[0])
+
+    if len(matches) > 1:  # Return the minimum on the left and the maximum on the right
+        return min(int(matches[0]), int(matches[1])), max(int(matches[0]), int(matches[1]))
     
-    return None
+    return None, None
 
 months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
 statuses = ["open", "prompt", "opn", "op", "pmt"]
@@ -99,9 +118,6 @@ class MongoEmail(BaseModel):
 def update_ship_entry_with_calculated_fields(existing_values: Dict):
     """Modifies existing ship object in place, adding calculated fields and embeddings."""
     capacity = extract_number(existing_values.get("capacity", ""))
-    # check if capacity is less than 3 digits, then multiply by 1000
-    if capacity and capacity < 1000:
-        capacity = capacity * 1000
 
     # Further update month in case ship has a status of "open" or "prompt" to be the month of the timestamp of the email.
     if existing_values.get("status", "").lower() in statuses:
@@ -158,12 +174,9 @@ def update_cargo_entry_with_calculated_fields(existing_values: Dict):
     """Modifies existing cargo object in place, adding calculated fields and vector embeddings."""
 
     min_max_weights = extract_weights(existing_values.get("capacity", ""))
-    if min_max_weights:
-        existing_values["capacity_min_int"] = min_max_weights[0] if min_max_weights[0] >= 1000 else min_max_weights[0] * 1000
-        existing_values["capacity_max_int"] = min_max_weights[1] if min_max_weights[1] >= 1000 else min_max_weights[1] * 1000
-    else:
-        existing_values["capacity_min_int"] = None
-        existing_values["capacity_max_int"] = None
+
+    # Update capacity to be the minimum and maximum weights
+    existing_values["capacity_min_int"], existing_values["capacity_max_int"] = min_max_weights
 
     # If capacity is not specified, pass an empty string to extract_number, which will return None
     existing_values["month_int"] = extract_month(existing_values.get("month", ""))
